@@ -1,0 +1,27 @@
+name: minacalc_pro
+version: 2.8.0+280
+publish_to: none
+description: Aplicativo nativo MinaCalc Pro para operação de campo online/offline.
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  sqflite: ^2.4.4
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  shared_preferences: ^2.5.5
+  flutter_secure_storage: ^11.2.0
+  connectivity_plus: ^7.3.1
+  geolocator: ^14.0.3
+  image_picker: ^1.2.3
+  flutter_image_compress: ^2.5.1
+  signature: ^6.4.0
+  maplibre_gl: ^0.27.1
+  uuid: ^4.6.0
+
+flutter:
+  uses-material-design: true
