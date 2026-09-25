@@ -156,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final count = (snap.data ?? const []).where((x) => x['seen'] != true).length;
               return Stack(alignment: Alignment.center, children: [
                 IconButton(onPressed: () => go(widget.controller.isManagement ? 'alerts' : 'sync'), icon: const Icon(Icons.notifications_none)),
-                if (count > 0) Positioned(right: 4, top: 8, child: Container(minWidth: 16, height: 16, padding: const EdgeInsets.symmetric(horizontal: 4), decoration: BoxDecoration(color: MinaTheme.yellow, borderRadius: BorderRadius.circular(20)), child: Text('$count', textAlign: TextAlign.center, style: const TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w900)))),
+                if (count > 0) Positioned(right: 4, top: 8, child: Container(constraints: const BoxConstraints(minWidth: 16), height: 16, padding: const EdgeInsets.symmetric(horizontal: 4), decoration: BoxDecoration(color: MinaTheme.yellow, borderRadius: BorderRadius.circular(20)), alignment: Alignment.center, child: Text('$count', textAlign: TextAlign.center, style: const TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w900)))),
               ]);
             },
           ),
