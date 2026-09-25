@@ -112,6 +112,31 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+
+  Future<void> replaceCollection(String collection, List<Map<String, dynamic>> records) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      await txn.delete('records', where: 'collection = ?', whereArgs: [collection]);
+      for (final record in records) {
+        final id = (record['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        await txn.insert('records', {
+          'collection': collection,
+          'record_id': id,
+          'payload': jsonEncode(record),
+          'version': (record['_sync_version'] as num?)?.toInt() ?? 0,
+          'updated_at': (record['updated_at'] ?? record['created_at'] ?? '').toString(),
+          'deleted': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  Future<void> clearCollection(String collection) async {
+    final d = await db;
+    await d.delete('records', where: 'collection = ?', whereArgs: [collection]);
+  }
+
   Future<List<Map<String, dynamic>>> all(String collection) async {
     final d = await db;
     final rows = await d.query('records', where: 'collection = ? AND deleted = 0', whereArgs: [collection]);
@@ -163,7 +188,7 @@ class LocalDb {
       'status': 'pending',
       'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Map<String, dynamic>>> pendingQueue({int limit = 100}) async {

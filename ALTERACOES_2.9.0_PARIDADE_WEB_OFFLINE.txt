@@ -1,0 +1,81 @@
+MINACALC PRO 2.9.0 — PARIDADE MOBILE WEB + OFFLINE
+
+OBJETIVO
+Transformar o aplicativo Flutter em uma versão nativa visualmente alinhada à experiência mobile do sistema web,
+mantendo trabalho offline e sincronização automática quando a conexão voltar.
+
+O QUE FOI ALTERADO
+- Splash nativo seguindo o visual do web, com logo MinaCalc Pro, fundo dark e faixa de segurança.
+- Entrada e login refeitos para seguir a identidade visual mobile do navegador.
+- Shell principal igual ao conceito do web mobile:
+  - topbar;
+  - menu lateral;
+  - status Online/Offline/Sincronizando;
+  - notificações;
+  - navegação inferior Início / Registrar / Planos / Relatórios.
+- Dashboard mobile com KPIs, operações recentes, aprovações e sincronização.
+- Tela de Planos com pesquisa, filtros, cadastro, edição, duplicação, status e exclusão permitida.
+- Formulário de plano com os mesmos campos principais do web e a mesma prévia dos cálculos já existentes.
+- Trabalhos A executar / Concluídos mantidos com operação completa offline.
+- Relatórios disponíveis no app e em cache para consulta offline após sincronização.
+- Mapa e pontos continuam funcionando online/offline conforme a fase anterior.
+- Cadastros de Empresas, Equipes, Usuários e Checklists disponíveis no app.
+- Aprovações podem ser registradas offline e enviadas posteriormente.
+- Alertas ficam disponíveis em cache e podem ser marcados como lidos.
+- Referências/materiais ficam disponíveis offline após o primeiro sync.
+- Configurações operacionais ficam disponíveis offline.
+- Perfil e idioma mantidos.
+
+MODELO OFFLINE NOVO
+Além das operações e pontos do mapa, o aplicativo agora possui fila genérica para ações da API.
+Quando não há internet, a interface grava a alteração localmente e adiciona a ação à fila SQLite.
+Quando a internet volta, o SyncEngine:
+1. envia a fila;
+2. recebe as alterações incrementais do servidor;
+3. substitui os registros temporários pelos registros definitivos;
+4. atualiza relatórios/alertas/configurações auxiliares;
+5. mantém conflitos na fila para revisão em vez de sobrescrever silenciosamente.
+
+AÇÕES OPERACIONAIS PREPARADAS PARA OFFLINE
+- Plano: criar, editar, duplicar, alterar situação permitida e excluir rejeitado.
+- Empresa: criar, editar e excluir quando permitido pelo servidor.
+- Equipe: criar, editar e excluir quando permitido pelo servidor.
+- Usuário: criar/editar dados de acesso e excluir quando permitido pelo servidor.
+  Para novo usuário offline, o cadastro usa convite na sincronização e não armazena senha inicial em texto aberto no aparelho.
+- Checklist: criar/editar.
+- Aprovação: aprovar/rejeitar e sincronizar depois.
+- Alertas: marcar como visualizados.
+- Configurações operacionais: editar e sincronizar.
+- Operações de campo, fotos, GPS, assinatura e mapa: mantidas da versão anterior.
+
+AÇÕES QUE CONTINUAM ONLINE POR SEGURANÇA
+- senha SMTP;
+- teste SMTP;
+- redefinição administrativa de senha;
+- envio manual de convite;
+- troca de senha da própria conta.
+Essas ações tratam segredos/credenciais e não devem ficar em uma fila SQLite em texto aberto.
+
+BACKEND
+Não foi necessário criar uma segunda API. A API 2.8.0 atual já aceita Bearer Token também nas ações normais
+(plan_save, team_save, company_save, user_save, checklist_save, approval_decide, settings_save etc.).
+O app 2.9.0 reutiliza essas mesmas ações e mantém sync_snapshot/sync_pull para reconciliar os dados.
+
+TESTES DE BACKEND EXECUTADOS LOCALMENTE
+- app_config via POST: OK.
+- app_login com joao: token emitido.
+- bootstrap autenticado com Bearer Token: OK.
+- company_save com Bearer Token: OK.
+- sync_pull recebeu evento da empresa criada: OK.
+- company_delete com Bearer Token: OK.
+- plan_save com Bearer Token: OK.
+- Plano de teste retornou volume 2.400 m³, perfuração 220 m e carga estimada 1.080 kg usando a lógica já existente.
+
+IMPORTANTE
+Nenhuma fórmula técnica nova foi criada nesta atualização.
+A divergência 500/300 m x 300/500 m continua como VALIDAÇÃO PENDENTE COM O CLIENTE.
+
+BUILD
+O fonte mantém o workflow .github/workflows/android-apk.yml.
+Após substituir os arquivos no repositório, execute o workflow Build Android APK novamente.
+O APK gerado continua sendo de homologação enquanto o build.gradle.kts estiver usando a debug signing key.

@@ -1,0 +1,22 @@
+MINACALC PRO 2.9.0 — TESTE RÁPIDO
+
+1. Instalar o novo APK após o build.
+2. Abrir o app e conferir splash, entrada, termo e login visualmente contra o site no celular.
+3. Fazer login online uma vez.
+4. Conferir Dashboard, menu lateral e barra inferior.
+5. Com internet, criar um Plano e confirmar que aparece no web após sincronizar.
+6. Desligar Wi-Fi e dados móveis.
+7. Criar/editar um Plano offline. Confirmar indicador Pendente.
+8. Criar uma Empresa, Equipe ou Checklist offline. Confirmar que permanece no app.
+9. Se perfil permitir, criar um Usuário offline. O app não solicita senha em modo offline; o convite será processado ao sincronizar.
+10. Registrar uma operação completa offline com checklist, fotos, GPS, observação e assinatura.
+11. Criar ponto de mapa offline.
+12. Religiar internet.
+13. Aguardar status Sincronizando -> Online — sincronizado.
+14. Conferir no web: planos, cadastros, operação, fotos/GPS/assinatura e ponto de mapa.
+15. Criar/alterar algo no web e sincronizar o app para confirmar ida e volta.
+16. Conferir Relatórios e Alertas no app após o sync.
+17. Testar logout/login novamente.
+
+SE ALGO FALHAR
+Anote a tela, ação, horário e mensagem exibida. Não altere fórmulas, limites ou distâncias de segurança para contornar erros.

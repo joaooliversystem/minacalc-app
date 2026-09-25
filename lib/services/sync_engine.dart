@@ -15,6 +15,7 @@ class SyncEngine extends ChangeNotifier {
   final ApiClient api;
   final ConnectivityService connectivity;
   final Future<void> Function()? onSessionInvalid;
+  final Future<void> Function()? onSyncSuccess;
   StreamSubscription<bool>? _networkSub;
   bool _running = false;
   SyncMode mode = SyncMode.offline;
@@ -23,7 +24,7 @@ class SyncEngine extends ChangeNotifier {
   String? lastError;
   DateTime? lastSyncAt;
 
-  SyncEngine({required this.db, required this.api, required this.connectivity, this.onSessionInvalid});
+  SyncEngine({required this.db, required this.api, required this.connectivity, this.onSessionInvalid, this.onSyncSuccess});
 
   Future<void> _refreshCounters() async {
     pendingCount = await db.pendingCount();
@@ -62,6 +63,7 @@ class SyncEngine extends ChangeNotifier {
       await _refreshCounters();
       mode = SyncMode.online;
       lastSyncAt = DateTime.now();
+      await onSyncSuccess?.call();
     } on ApiException catch (e) {
       lastError = e.message;
       if (e.statusCode == 401 || e.statusCode == 403) {
@@ -85,6 +87,31 @@ class SyncEngine extends ChangeNotifier {
       final kind = row['kind'] as String;
       final payload = Map<String, dynamic>.from(row['payload'] as Map);
       try {
+        if (kind == 'api_action') {
+          final action = (payload['action'] ?? '').toString();
+          final bodyRaw = payload['body'];
+          if (action.isEmpty || bodyRaw is! Map) {
+            throw ApiException('Ação offline inválida.', 422);
+          }
+          final response = await api.action(action, Map<String, dynamic>.from(bodyRaw));
+          final collection = (payload['local_collection'] ?? '').toString();
+          final localId = (payload['local_record_id'] ?? '').toString();
+          final resultKey = (payload['result_key'] ?? '').toString();
+          if (collection.isNotEmpty && localId.isNotEmpty && payload['remove_local_after_sync'] == true) {
+            await db.deleteLocal(collection, localId);
+          }
+          if (collection.isNotEmpty && resultKey.isNotEmpty && response[resultKey] is Map) {
+            final record = Map<String, dynamic>.from(response[resultKey] as Map);
+            final id = (record['id'] ?? '').toString();
+            if (id.isNotEmpty) await db.putLocal(collection, id, record, version: (record['_sync_version'] as num?)?.toInt() ?? 0);
+          }
+          if (action == 'settings_save' && response['settings'] is Map) {
+            await db.setMeta('server_settings', jsonEncode(response['settings']));
+          }
+          await db.queueDone(id);
+          continue;
+        }
+
         if (kind == 'evidence_upload') {
           final path = (payload['path'] ?? '').toString();
           if (path.isEmpty || !await File(path).exists()) {

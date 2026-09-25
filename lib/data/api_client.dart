@@ -31,6 +31,8 @@ class ApiClient {
       };
 
   Future<Map<String, dynamic>> appConfig() => _request('app_config', const {});
+  Future<Map<String, dynamic>> bootstrap() => _request('bootstrap', const {});
+  Future<Map<String, dynamic>> action(String action, Map<String, dynamic> body) => _request(action, body);
 
   Future<Map<String, dynamic>> requestPasswordReset(String email) =>
       _request('app_password_reset_request', {'email': email});

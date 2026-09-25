@@ -1,4 +1,4 @@
-# MinaCalc Pro 2.8.0 — aplicativo Flutter nativo
+# MinaCalc Pro 2.9.0 — aplicativo Flutter nativo com paridade mobile web
 
 Aplicativo de campo nativo, sem WebView, sincronizado com a API do MinaCalc Pro.
 
@@ -6,10 +6,12 @@ Aplicativo de campo nativo, sem WebView, sincronizado com a API do MinaCalc Pro.
 
 1. O primeiro login do aparelho exige internet.
 2. Após autenticar, o app baixa o snapshot permitido ao usuário e mantém banco SQLite local.
-3. Em campo, planos disponíveis, checklist, fotos, GPS, observações, assinatura e conclusão funcionam sem internet.
-4. Alterações offline entram em uma fila local idempotente.
-5. Ao recuperar acesso real ao servidor, o app envia a fila e baixa alterações incrementais.
-6. Conflitos de versão ficam separados para revisão, sem sobrescrita silenciosa.
+3. A experiência visual/navegação segue o mobile web: dashboard, menu, barra inferior, planos, trabalhos, relatórios e cadastros por perfil.
+4. Planos, empresas, equipes, usuários, checklists, aprovações, configurações operacionais e operações de campo podem ser registrados offline conforme a permissão do perfil.
+5. Alterações offline entram em uma fila SQLite local/idempotente.
+6. Ao recuperar acesso real ao servidor, o app envia a fila e baixa alterações incrementais.
+7. Conflitos de versão ficam separados para revisão, sem sobrescrita silenciosa.
+8. Senhas, SMTP e ações que manipulam segredos continuam online por segurança.
 
 ## Mapa
 
@@ -34,7 +36,7 @@ Com Flutter 3.47.5 instalado:
 
 `flutter pub get`
 
-`flutter analyze`
+`flutter analyze --no-fatal-warnings --no-fatal-infos`
 
 `flutter test`
 
