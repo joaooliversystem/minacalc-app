@@ -1,0 +1,8 @@
+MinaCalc Pro 2.14.2 — pacote Android preparado para compilacao
+
+Alinhado ao Web/API 2.14.2.
+O hotfix 2.14.2 do mapa web nao exige mudanca funcional no mapa nativo Android: o app usa o plugin MapLibre nativo e o estilo OpenFreeMap diretamente.
+
+Build recomendado: Flutter 3.47.5 / Dart 3.13.4 / JDK 21.
+APK homologacao: BUILD_APK.bat ou BUILD_APK.sh
+AAB Play Store: BUILD_AAB.bat ou BUILD_AAB.sh apos configurar o keystore.

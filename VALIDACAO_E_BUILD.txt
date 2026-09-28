@@ -1,38 +1,21 @@
-MINACALC PRO 2.9.0 — VALIDACAO ESTATICA DO PACOTE
+MINACALC PRO 2.14.2 — PRE-CHECAGEM PARA BUILD ANDROID
 
-Arquivos alterados/novos no patch: 28
-Delimitadores Dart e imports locais: conferidos antes do empacotamento.
-Workflow/Gradle: preserva a configuração que gerou o APK 2.8.0 com sucesso (Java 21, Gradle 8.14.3, AGP 8.11.1, Kotlin 2.2.20).
-Flutter compile/analyze 2.9.0: PENDENTE de execução no GitHub Actions, pois o SDK Flutter não está instalado neste ambiente local.
-Nenhuma fórmula técnica nova foi adicionada.
-Distâncias 500/300 x 300/500 permanecem como VALIDAÇÃO PENDENTE COM O CLIENTE.
+Versao Flutter: 2.14.2+2142
+API esperada: MinaCalc Pro Web/API 2.14.2
+Application ID: br.com.minacalc.pro
 
-Arquivos do patch:
-- .github/workflows/android-apk.yml
-- ALTERACOES_2.9.0_PARIDADE_WEB_OFFLINE.txt
-- BUILD_APK.bat
-- BUILD_APK.sh
-- README.md
-- TESTE_RAPIDO_2.9.0.txt
-- android/app/src/main/res/drawable/launch_background.xml
-- android/app/src/main/res/drawable-v21/launch_background.xml
-- android/gradle/wrapper/gradle-wrapper.properties
-- android/gradlew
-- android/settings.gradle.kts
-- assets/hazard.png
-- assets/logo.png
-- assets/quarry.png
-- lib/app.dart
-- lib/controllers/app_controller.dart
-- lib/core/constants.dart
-- lib/data/api_client.dart
-- lib/data/local_db.dart
-- lib/main.dart
-- lib/services/sync_engine.dart
-- lib/ui/screens/entry_screen.dart
-- lib/ui/screens/home_screen.dart
-- lib/ui/screens/login_screen.dart
-- lib/ui/screens/parity_pages.dart
-- lib/ui/theme.dart
-- lib/ui/widgets/web_parity.dart
-- pubspec.yaml
+CHECAGENS REALIZADAS:
+- Estrutura Flutter/Android completa.
+- Imports locais conferidos, sem arquivos ausentes.
+- AndroidManifest com INTERNET, rede, camera e localizacao.
+- MainActivity presente no namespace correto.
+- MapLibre 0.27.1 confirmado como compativel com Flutter 3.47+ / Dart 3.7+ e Android.
+- Workflow fixado em Flutter 3.47.5 + JDK 21.
+- Gradle Wrapper configurado em 8.14.3 (Linux/macOS e Windows).
+- API padrao aponta para https://desenvolvimento.joaoprogramador.site/projetos/minacalc/api.php
+
+IMPORTANTE:
+- Este ambiente de empacotamento nao possui Flutter/Dart, portanto flutter pub get, flutter analyze, flutter test e flutter build nao foram executados aqui.
+- Execute BUILD_APK.bat (Windows) ou BUILD_APK.sh (Linux/macOS). Os scripts rodam pub get, analyze, tests e build em sequencia.
+- O primeiro build requer internet para baixar dependencias e, se necessario, o Gradle Wrapper.
+- Para Play Store, configure android/key.properties com seu keystore real antes do BUILD_AAB.

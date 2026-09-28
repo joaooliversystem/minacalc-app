@@ -9,6 +9,7 @@ import '../data/api_client.dart';
 import '../data/local_db.dart';
 import '../data/session_store.dart';
 import '../services/connectivity_service.dart';
+import '../services/formula_engine.dart';
 import '../services/location_service.dart';
 import '../services/media_service.dart';
 import '../services/offline_map_service.dart';
@@ -103,6 +104,13 @@ class AppController extends ChangeNotifier {
           );
         }
       }
+      final participants = boot['participants'];
+      if (participants is List) {
+        await db.replaceCollection(
+          'participant_directory',
+          participants.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+        );
+      }
       if (boot['settings'] is Map) {
         final settings = Map<String, dynamic>.from(boot['settings'] as Map);
         settings['id'] = 'main';
@@ -191,8 +199,13 @@ class AppController extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> teams() => db.all('teams');
   Future<List<Map<String, dynamic>>> companies() => db.all('companies');
   Future<List<Map<String, dynamic>>> users() => db.all('users');
+  Future<List<Map<String, dynamic>>> participantDirectory() => db.all('participant_directory');
   Future<List<Map<String, dynamic>>> checklists() => db.all('checklists');
   Future<List<Map<String, dynamic>>> materials() => db.all('materials');
+  Future<List<Map<String, dynamic>>> explosives() => db.all('explosives');
+  Future<List<Map<String, dynamic>>> boosters() => db.all('boosters');
+  Future<List<Map<String, dynamic>>> technicalTables() => db.all('technical_tables');
+  Future<List<Map<String, dynamic>>> formulas() => db.all('formulas');
   Future<List<Map<String, dynamic>>> approvals() => db.all('approvals');
   Future<List<Map<String, dynamic>>> reports() => db.all('reports');
   Future<List<Map<String, dynamic>>> alerts() => db.all('alerts');
@@ -255,13 +268,21 @@ class AppController extends ChangeNotifier {
       'bench_height': parseNum(p['bench_height']),
       'hole_depth': parseNum(p['hole_depth']),
       'subdrilling': parseNum(p['subdrilling']),
+      'depth_mode': p['depth_mode'] ?? 'manual',
       'inclination_deg': parseNum(p['inclination_deg']),
       'hole_diameter_mm': parseNum(p['hole_diameter_mm']),
       'holes': parseNum(p['holes']).round(),
       'burden': parseNum(p['burden']),
       'spacing': parseNum(p['spacing']),
+      'rock_density_t_m3': parseNum(p['rock_density_t_m3']),
+      'explosive_id': p['explosive_id'] ?? '',
       'explosive_type': p['explosive_type'] ?? '',
+      'explosive_category': p['explosive_category'] ?? 'other',
+      'explosive_variant': p['explosive_variant'] ?? '',
+      'explosive_density_source': p['explosive_density_source'] ?? 'manual',
+      'booster_id': p['booster_id'] ?? '',
       'booster': p['booster'] ?? '',
+      'booster_qty_planned': parseNum(p['booster_qty_planned']).round(),
       'explosive_density': parseNum(p['explosive_density']),
       'kg_per_meter': parseNum(p['kg_per_meter']),
       'charge_per_hole_kg': parseNum(p['charge_per_hole_kg']),
@@ -271,9 +292,57 @@ class AppController extends ChangeNotifier {
       'center_lat': p['center_lat'] ?? '',
       'center_lng': p['center_lng'] ?? '',
     };
-    final volume = parseNum(p['burden']) * parseNum(p['spacing']) * parseNum(p['bench_height']) * parseNum(p['holes']);
-    final drilling = parseNum(p['hole_depth']) * parseNum(p['holes']);
-    final estimated = volume * parseNum(p['powder_factor']);
+    double round2(double value) => (value * 100).roundToDouble() / 100;
+    final bench = parseNum(p['bench_height']);
+    final subdrilling = parseNum(p['subdrilling']);
+    final enteredDepth = parseNum(p['hole_depth']);
+    final depthMode = (p['depth_mode'] ?? 'manual').toString();
+    final effectiveDepth = depthMode == 'bench_plus_subdrilling' ? bench + subdrilling : enteredDepth;
+    final holes = parseNum(p['holes']).round();
+    final burden = parseNum(p['burden']);
+    final spacing = parseNum(p['spacing']);
+    final powderFactor = parseNum(p['powder_factor']);
+    final rockDensity = parseNum(p['rock_density_t_m3']);
+    final formulaRows = await formulas();
+    final formulaEngine = FormulaEngine(formulaRows);
+    final context = <String, double>{
+      'bench_height': bench,
+      'subdrilling': subdrilling,
+      'effective_hole_depth': effectiveDepth,
+      'holes': holes.toDouble(),
+      'burden': burden,
+      'spacing': spacing,
+      'powder_factor': powderFactor,
+      'rock_density': rockDensity,
+    };
+    final fallbackVolume = round2(burden * spacing * bench * holes);
+    final volume = formulaEngine.evaluate('volume_m3', context, fallback: fallbackVolume) ?? fallbackVolume;
+    context['volume_m3'] = volume;
+    final fallbackDrilling = round2(effectiveDepth * holes);
+    final drilling = formulaEngine.evaluate('drilling_m', context, fallback: fallbackDrilling) ?? fallbackDrilling;
+    context['drilling_m'] = drilling;
+    final fallbackEstimated = round2(volume * powderFactor);
+    final estimated = formulaEngine.evaluate('estimated_charge_kg', context, fallback: fallbackEstimated) ?? fallbackEstimated;
+    context['estimated_charge_kg'] = estimated;
+    final fallbackPerHole = holes > 0 ? round2(estimated / holes) : null;
+    final estimatedPerHole = holes > 0
+        ? formulaEngine.evaluate('estimated_charge_per_hole_kg', context, fallback: fallbackPerHole)
+        : null;
+    if (estimatedPerHole != null) context['estimated_charge_per_hole_kg'] = estimatedPerHole;
+    final fallbackTonnage = rockDensity > 0 ? round2(volume * rockDensity) : null;
+    final tonnage = rockDensity > 0
+        ? formulaEngine.evaluate('tonnage_t', context, fallback: fallbackTonnage)
+        : null;
+    final formulaSnapshot = formulaEngine.snapshotFor(const [
+      'volume_m3',
+      'drilling_m',
+      'estimated_charge_kg',
+      'estimated_charge_per_hole_kg',
+      'tonnage_t',
+    ]);
+    final participantIds = (p['participant_ids'] as List? ?? const []).map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+    final availableUsers = await users();
+    final participantRows = availableUsers.where((u) => participantIds.contains((u['id'] ?? '').toString())).map((u) => {'id': u['id'], 'name': u['name'], 'role': u['role'], 'team': u['team']}).toList();
     final optimistic = <String, dynamic>{
       ...?existing,
       'id': localId,
@@ -287,7 +356,21 @@ class AppController extends ChangeNotifier {
       'status': 'Em revisão',
       'notes': p['notes'] ?? '',
       'parameters': params,
-      'summary': {'volume_m3': volume, 'drilling_m': drilling, 'estimated_charge_kg': estimated},
+      'participant_ids': participantIds,
+      'participants': participantRows,
+      'summary': {
+        'calculation_version': 'formula-engine-2.1',
+        'formula_policy': 'published_only',
+        'formula_snapshot': formulaSnapshot,
+        'effective_hole_depth_m': round2(effectiveDepth),
+        'volume_m3': volume,
+        'drilling_m': drilling,
+        'estimated_charge_kg': estimated,
+        'estimated_charge_per_hole_kg': estimatedPerHole,
+        'powder_factor_kg_m3': powderFactor,
+        'rock_density_t_m3': rockDensity > 0 ? rockDensity : null,
+        'tonnage_t': tonnage,
+      },
       'updated_at': DateTime.now().toIso8601String(),
       'created_at': existing?['created_at'] ?? DateTime.now().toIso8601String(),
       '_local_pending': true,

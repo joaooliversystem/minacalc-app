@@ -1,0 +1,36 @@
+MINACALC PRO 2.14.0 — ETAPA FINAL / ENTREGA DE CÓDIGO
+=====================================================
+
+VERSÕES
+- Web/PWA/API: 2.14.0
+- Flutter/Android: 2.14.0+2140
+- Schema técnico: 2.2
+- Motor de cálculos: formula-engine-2.1
+- Relatório: final-report-1.0
+
+CONSOLIDADO
+1. Motor de cálculos editável e versionado.
+2. Programador controla a concessão/revogação de Admin Master.
+3. Admin Master pode gerenciar fórmulas; Admin comum não.
+4. Planos preservam snapshot das fórmulas utilizadas.
+5. Flutter usa fórmulas publicadas com cache offline.
+6. 5 fórmulas-base publicadas; 23 regras documentais divergentes mantidas pendentes de validação técnica.
+7. 5 explosivos, 4 boosters e 3 conjuntos de tabelas técnicas cadastrados.
+8. Operação de campo com APFF (37 itens), checklist, participantes, planejado x executado, explosivos/boosters, evidências, GPS e assinatura.
+9. Relatório final único com snapshot imutável da operação, plano e fórmulas.
+10. Scripts de APK e AAB incluídos; AAB aceita assinatura de produção via android/key.properties.
+
+VALIDAÇÕES EXECUTADAS NO AMBIENTE DE ENTREGA
+- PHP: lint em todos os arquivos PHP.
+- JavaScript: node --check em todos os arquivos JS.
+- JSON: parse de todas as coleções JSON.
+- Regressão de cálculo: 2.400 m³; 220 m; 1.080 kg; 54 kg/furo; 6.480 t.
+- Operação integrada em cópia isolada: participantes, APFF, checklist, explosivo, booster, GPS, assinatura e relatório.
+- Idempotência: operação com mesmo client_uuid não é duplicada.
+- Estrutura Flutter: imports locais, assets, AndroidManifest, package/application ID, versão e scripts de build verificados.
+
+LIMITAÇÃO DO AMBIENTE
+O SDK Flutter/Dart não está instalado no ambiente desta sessão. Portanto `flutter analyze`, `flutter test`, `flutter build apk` e `flutter build appbundle` não foram executados localmente nesta etapa final. Os scripts de build estão incluídos para execução em máquina/CI com Flutter 3.47.5.
+
+PENDÊNCIA EXTERNA
+As regras técnicas divergentes continuam exigindo homologação do responsável técnico antes de serem publicadas. Isso é intencional e evita substituir uma fórmula por suposição.

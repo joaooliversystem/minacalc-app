@@ -218,6 +218,8 @@ class _PlanCard extends StatelessWidget {
         MCStatus(_s(plan['status'])),
         _MiniMetric('${_n(summary['volume_m3']).toStringAsFixed(0)} m³'),
         _MiniMetric('${_n(summary['drilling_m']).toStringAsFixed(0)} m perfuração'),
+        if (_n(summary['tonnage_t']) > 0) _MiniMetric('${_n(summary['tonnage_t']).toStringAsFixed(0)} t'),
+        if (_s((plan['parameters'] as Map?)?['explosive_type']).isNotEmpty) _MiniMetric(_s((plan['parameters'] as Map?)?['explosive_type'])),
       ]),
       const SizedBox(height: 14),
       Row(children: [
@@ -275,10 +277,16 @@ class PlanEditorSheet extends StatefulWidget {
 
 class _PlanEditorSheetState extends State<PlanEditorSheet> {
   late final Map<String, TextEditingController> c;
-  String explosive = '';
+  late final Future<List<dynamic>> _references;
   String materialId = '';
   String teamId = '';
   String companyId = 'company_default';
+  String depthMode = 'manual';
+  String explosiveId = '';
+  String explosiveCategory = 'other';
+  String explosiveDensitySource = 'manual';
+  String boosterId = '';
+  final Set<String> participantIds = <String>{};
   bool busy = false;
 
   @override
@@ -288,24 +296,41 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
     final z = Map<String, dynamic>.from(p['parameters'] as Map? ?? const {});
     String v(String key, [Object? fallback]) => _s(z.containsKey(key) ? z[key] : (p[key] ?? fallback));
     c = {
-      for (final key in ['name','client_ref','site','team','responsible','bench_height','hole_depth','subdrilling','inclination_deg','hole_diameter_mm','holes','burden','spacing','booster','explosive_density','kg_per_meter','charge_per_hole_kg','powder_factor','people_radius','equipment_radius','center_lat','center_lng','notes'])
-        key: TextEditingController(text: v(key)),
+      for (final key in [
+        'name','client_ref','site','team','responsible','rock_density_t_m3','bench_height','hole_depth','subdrilling','inclination_deg','hole_diameter_mm','holes','burden','spacing',
+        'explosive_type','explosive_variant','explosive_density','kg_per_meter','charge_per_hole_kg','powder_factor','booster','booster_qty_planned','people_radius','equipment_radius','center_lat','center_lng','notes'
+      ]) key: TextEditingController(text: v(key)),
     };
-    explosive = v('explosive_type');
     materialId = v('material_id');
     teamId = _s(p['team_id']);
-    companyId = _s(p['company_id']).isEmpty ? _s(widget.controller.currentUser?['company_id']).isEmpty ? 'company_default' : _s(widget.controller.currentUser?['company_id']) : _s(p['company_id']);
+    companyId = _s(p['company_id']).isEmpty ? (_s(widget.controller.currentUser?['company_id']).isEmpty ? 'company_default' : _s(widget.controller.currentUser?['company_id'])) : _s(p['company_id']);
+    depthMode = v('depth_mode', 'manual').isEmpty ? 'manual' : v('depth_mode', 'manual');
+    explosiveId = v('explosive_id');
+    explosiveCategory = v('explosive_category', 'other').isEmpty ? 'other' : v('explosive_category', 'other');
+    explosiveDensitySource = v('explosive_density_source', 'manual').isEmpty ? 'manual' : v('explosive_density_source', 'manual');
+    boosterId = v('booster_id');
+    participantIds.addAll((p['participant_ids'] as List? ?? const []).map((e) => e.toString()));
     if (c['responsible']!.text.isEmpty) c['responsible']!.text = _s(widget.controller.currentUser?['name']);
+    _references = Future.wait<dynamic>([
+      widget.controller.teams(), widget.controller.materials(), widget.controller.explosives(), widget.controller.boosters(), widget.controller.technicalTables(), widget.controller.users(),
+    ]);
   }
 
   @override
   void dispose() { for (final x in c.values) { x.dispose(); } super.dispose(); }
 
+  double get _bench => _n(c['bench_height']!.text);
+  double get _sub => _n(c['subdrilling']!.text);
+  int get _holes => _n(c['holes']!.text).round();
+  double get _effectiveDepth => depthMode == 'bench_plus_subdrilling' ? _bench + _sub : _n(c['hole_depth']!.text);
+  double get _volume => _n(c['burden']!.text) * _n(c['spacing']!.text) * _bench * _holes;
+  double get _drilling => _effectiveDepth * _holes;
+  double get _charge => _volume * _n(c['powder_factor']!.text);
+  double? get _chargePerHole => _holes > 0 ? _charge / _holes : null;
+  double? get _tonnage { final d = _n(c['rock_density_t_m3']!.text); return d > 0 ? _volume * d : null; }
+
   @override
   Widget build(BuildContext context) {
-    final volume = _n(c['burden']!.text) * _n(c['spacing']!.text) * _n(c['bench_height']!.text) * _n(c['holes']!.text);
-    final drilling = _n(c['hole_depth']!.text) * _n(c['holes']!.text);
-    final charge = volume * _n(c['powder_factor']!.text);
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: .96,
@@ -315,97 +340,210 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 14, 8, 8),
           child: Row(children: [
-            Expanded(child: Text(widget.existing == null ? 'Novo planejamento' : 'Editar plano', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('PLANO DE FOGO · ESTRUTURA TÉCNICA 2.0', style: TextStyle(color: MinaTheme.yellow, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.1)),
+              const SizedBox(height: 3),
+              Text(widget.existing == null ? 'Novo planejamento' : 'Editar plano', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+            ])),
             IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
           ]),
         ),
         const Divider(height: 1),
-        Expanded(child: ListView(controller: scroll, padding: const EdgeInsets.fromLTRB(18, 16, 18, 24), children: [
-          _field('Nome do plano *', 'name'),
-          _field('Cliente / mina / obra / identificação', 'client_ref'),
-          _field('Frente / local *', 'site'),
-          FutureBuilder<List<Map<String, dynamic>>>(future: widget.controller.teams(), builder: (context, snap) {
-            final teams = snap.data ?? const [];
-            return DropdownButtonFormField<String>(
-              value: teamId.isEmpty ? null : teamId,
-              decoration: const InputDecoration(labelText: 'Equipe *'),
-              items: teams.map((t) => DropdownMenuItem(value: _s(t['id']), child: Text(_s(t['name'])))).toList(),
-              onChanged: (id) { setState(() { teamId = id ?? ''; final t = teams.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == teamId, orElse: () => null); if (t != null) { c['team']!.text = _s(t['name']); companyId = _s(t['company_id']); } }); },
-            );
-          }),
-          const SizedBox(height: 12),
-          _field('Responsável técnico *', 'responsible'),
-          FutureBuilder<List<Map<String, dynamic>>>(future: widget.controller.materials(), builder: (context, snap) {
-            final materials = snap.data ?? const [];
-            return DropdownButtonFormField<String>(
-              value: materialId.isEmpty ? null : materialId,
-              decoration: const InputDecoration(labelText: 'Material'),
-              items: materials.map((m) => DropdownMenuItem(value: _s(m['id']), child: Text(_s(m['name'])))).toList(),
-              onChanged: (v) => setState(() => materialId = v ?? ''),
-            );
-          }),
-          const SizedBox(height: 14),
-          const Text('Parâmetros técnicos', style: TextStyle(color: MinaTheme.yellow, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 10),
-          ...[
-            ['Altura da bancada (m)','bench_height'], ['Profundidade do furo (m)','hole_depth'], ['Subfuração (m)','subdrilling'], ['Inclinação (graus)','inclination_deg'], ['Diâmetro do furo (mm)','hole_diameter_mm'], ['Quantidade de furos','holes'], ['Afastamento (m)','burden'], ['Espaçamento (m)','spacing'],
-          ].map((x) => _field(x[0], x[1], number: true)),
-          DropdownButtonFormField<String>(
-            value: explosive.isEmpty ? null : explosive,
-            decoration: const InputDecoration(labelText: 'Explosivo'),
-            items: const ['ANFO','Emulsão','ANFO + Emulsão','Outro'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
-            onChanged: (v) => setState(() => explosive = v ?? ''),
-          ),
-          const SizedBox(height: 12),
-          _field('Booster / iniciador', 'booster'),
-          ...[
-            ['Densidade do explosivo (g/cm³)','explosive_density'], ['Kg por metro (informado)','kg_per_meter'], ['Carga por furo (kg, informada)','charge_per_hole_kg'], ['Razão de carga validada (kg/m³)','powder_factor'], ['Raio de controle — pessoas (m)','people_radius'], ['Raio de controle — equipamentos (m)','equipment_radius'], ['Latitude do centro','center_lat'], ['Longitude do centro','center_lng'],
-          ].map((x) => _field(x[0], x[1], number: true)),
-          _field('Observações e condicionantes', 'notes', maxLines: 4),
-          Container(
-            padding: const EdgeInsets.all(13),
-            decoration: BoxDecoration(color: const Color(0xFF29220B), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF725A0D))),
-            child: const Text('VALIDAÇÃO PENDENTE COM O CLIENTE: há referência a 500/300 m e 300/500 m. O aplicativo não escolhe a regra automaticamente.', style: TextStyle(color: MinaTheme.yellow2, fontSize: 12)),
-          ),
-          const SizedBox(height: 14),
-          MCPanel(child: Row(children: [
-            Expanded(child: _Calc('Volume teórico', '${volume.toStringAsFixed(2)} m³')),
-            Expanded(child: _Calc('Perfuração total', '${drilling.toStringAsFixed(2)} m')),
-            Expanded(child: _Calc('Carga estimada', '${charge.toStringAsFixed(2)} kg')),
-          ])),
-          const SizedBox(height: 18),
-          ElevatedButton.icon(onPressed: busy ? null : _save, icon: busy ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: const Text('Salvar plano')),
-          const SizedBox(height: 8),
-          const Text('Quando estiver offline, o cadastro fica neste aparelho e entra na fila de sincronização.', textAlign: TextAlign.center, style: TextStyle(color: MinaTheme.muted, fontSize: 11)),
-        ])),
+        Expanded(child: FutureBuilder<List<dynamic>>(
+          future: _references,
+          builder: (context, snap) {
+            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+            final teams = List<Map<String,dynamic>>.from(snap.data![0] as List);
+            final materials = List<Map<String,dynamic>>.from(snap.data![1] as List);
+            final explosives = List<Map<String,dynamic>>.from(snap.data![2] as List).where((x) => x['active'] != false).toList();
+            final boosters = List<Map<String,dynamic>>.from(snap.data![3] as List).where((x) => x['active'] != false).toList();
+            final tables = List<Map<String,dynamic>>.from(snap.data![4] as List).where((x) => x['active'] != false).toList();
+            final users = List<Map<String,dynamic>>.from(snap.data![5] as List).where((x) => x['active'] != false).toList();
+            final material = materials.cast<Map<String,dynamic>?>().firstWhere((m) => _s(m?['id']) == materialId, orElse: () => null);
+            final selectedExplosive = explosives.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == explosiveId, orElse: () => null);
+            final selectedBooster = boosters.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == boosterId, orElse: () => null);
+            return ListView(controller: scroll, padding: const EdgeInsets.fromLTRB(14, 14, 14, 28), children: [
+              _planSection('01', 'Identificação', 'Dados do plano, obra, equipe e fluxo de aprovação', [
+                _field('Nome do plano *', 'name'), _field('Cliente / mina / obra / identificação', 'client_ref'), _field('Frente / local *', 'site'),
+                DropdownButtonFormField<String>(
+                  value: teams.any((t) => _s(t['id']) == teamId) ? teamId : null,
+                  decoration: const InputDecoration(labelText: 'Equipe *'),
+                  items: teams.map((t) => DropdownMenuItem(value: _s(t['id']), child: Text(_s(t['name'])))).toList(),
+                  onChanged: (id) { setState(() { teamId = id ?? ''; final t = teams.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == teamId, orElse: () => null); if (t != null) { c['team']!.text = _s(t['name']); companyId = _s(t['company_id']); } }); },
+                ),
+                const SizedBox(height: 12), _field('Responsável técnico *', 'responsible'),
+                const _StaticNote('Ao salvar, o plano ficará Em revisão até ser analisado em Aprovações.'),
+              ]),
+              _planSection('02', 'Bancada e perfuração', 'Geometria principal e profundidade usada nos cálculos homologados', [
+                DropdownButtonFormField<String>(
+                  value: materials.any((m) => _s(m['id']) == materialId) ? materialId : null,
+                  decoration: const InputDecoration(labelText: 'Material / tipo de rocha'),
+                  items: materials.map((m) => DropdownMenuItem(value: _s(m['id']), child: Text(_s(m['name'])))).toList(),
+                  onChanged: (v) => setState(() => materialId = v ?? ''),
+                ),
+                if (material != null) Padding(padding: const EdgeInsets.only(top: 7), child: Text('Referência cadastrada: ${_fmtRange(material['density_min'], material['density_max'])} t/m³. Não aplicada automaticamente.', style: const TextStyle(color: MinaTheme.muted, fontSize: 11))),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: depthMode,
+                  decoration: const InputDecoration(labelText: 'Modo da profundidade'),
+                  items: const [DropdownMenuItem(value:'manual',child:Text('Informada manualmente')),DropdownMenuItem(value:'bench_plus_subdrilling',child:Text('Bancada + subfuração'))],
+                  onChanged: (v) => setState(() => depthMode = v ?? 'manual'),
+                ),
+                const SizedBox(height: 12), _field('Densidade da rocha usada (t/m³)', 'rock_density_t_m3', number: true), _field('Altura da bancada (m)', 'bench_height', number: true),
+                _field('Profundidade informada do furo (m)', 'hole_depth', number: true, enabled: depthMode == 'manual'), _field('Subfuração (m)', 'subdrilling', number: true),
+                _field('Inclinação (graus)', 'inclination_deg', number: true), _field('Diâmetro do furo (mm)', 'hole_diameter_mm', number: true),
+              ]),
+              _planSection('03', 'Malha', 'Parâmetros geométricos usados no volume e na perfuração total', [
+                _field('Quantidade de furos', 'holes', number: true), _field('Afastamento (m)', 'burden', number: true), _field('Espaçamento (m)', 'spacing', number: true),
+                const _StaticNote('Volume = bancada × afastamento × espaçamento × nº de furos. Nenhuma fórmula adicional é aplicada.'),
+              ]),
+              _planSection('04', 'Explosivos', 'Catálogo técnico ou preenchimento manual, sem recomendação automática', [
+                DropdownButtonFormField<String>(
+                  value: explosives.any((x) => _s(x['id']) == explosiveId) ? explosiveId : null,
+                  decoration: const InputDecoration(labelText: 'Explosivo do catálogo'),
+                  items: [const DropdownMenuItem(value:'',child:Text('Preenchimento manual')), ...explosives.map((x) => DropdownMenuItem(value:_s(x['id']),child:Text('${_s(x['name'])} — ${_validationText(x['validation_status'])}')))],
+                  onChanged: (id) { setState(() { explosiveId = id ?? ''; final x = explosives.cast<Map<String,dynamic>?>().firstWhere((e) => _s(e?['id']) == explosiveId, orElse: () => null); if (x != null) { c['explosive_type']!.text = _s(x['name']); explosiveCategory = _s(x['category']).isEmpty ? 'other' : _s(x['category']); if (c['explosive_variant']!.text.isEmpty) c['explosive_variant']!.text = [_s(x['manufacturer']), _s(x['product_code']), _n(x['diameter_mm']) > 0 ? 'Ø ${_n(x['diameter_mm']).toStringAsFixed(0)} mm' : ''].where((e) => e.isNotEmpty).join(' · '); if (_s(x['validation_status']) == 'validated') { if (x['density_kg_l'] != null) c['explosive_density']!.text = '${x['density_kg_l']}'; if (x['kg_per_meter'] != null) c['kg_per_meter']!.text = '${x['kg_per_meter']}'; explosiveDensitySource = 'catalog'; } else { explosiveDensitySource = 'manual'; } } }); },
+                ),
+                if (selectedExplosive != null) _CatalogInfo(item: selectedExplosive, kind: 'explosive'),
+                const SizedBox(height: 12), _field('Nome / tipo utilizado', 'explosive_type'),
+                DropdownButtonFormField<String>(
+                  value: explosiveCategory,
+                  decoration: const InputDecoration(labelText: 'Categoria'),
+                  items: const [DropdownMenuItem(value:'anfo',child:Text('ANFO')),DropdownMenuItem(value:'emulsion_pumped',child:Text('Emulsão bombeada')),DropdownMenuItem(value:'cartridge',child:Text('Encartuchado')),DropdownMenuItem(value:'other',child:Text('Outro'))],
+                  onChanged: (v) => setState(() => explosiveCategory = v ?? 'other'),
+                ),
+                const SizedBox(height: 12), _field('Variação / apresentação', 'explosive_variant'),
+                DropdownButtonFormField<String>(
+                  value: explosiveDensitySource,
+                  decoration: const InputDecoration(labelText: 'Origem da densidade / kg/m'),
+                  items: const [DropdownMenuItem(value:'manual',child:Text('Informado manualmente')),DropdownMenuItem(value:'catalog',child:Text('Catálogo técnico')),DropdownMenuItem(value:'imported',child:Text('Tabela importada'))],
+                  onChanged: (v) => setState(() => explosiveDensitySource = v ?? 'manual'),
+                ),
+                const SizedBox(height: 12), _field('Densidade do explosivo (g/cm³)', 'explosive_density', number: true), _field('Kg por metro (informado)', 'kg_per_meter', number: true),
+                _field('Carga por furo (kg, informada)', 'charge_per_hole_kg', number: true), _field('Razão de carga validada (kg/m³)', 'powder_factor', number: true),
+                if (selectedExplosive != null && _s(selectedExplosive['validation_status']) != 'validated') const Padding(padding: EdgeInsets.only(top: 2), child: Text('Item ainda não validado: valores numéricos do catálogo não são aplicados automaticamente.', style: TextStyle(color: MinaTheme.yellow2, fontSize: 11))),
+              ]),
+              _planSection('05', 'Booster / iniciador', 'Registro do tipo e da quantidade planejada', [
+                DropdownButtonFormField<String>(
+                  value: boosters.any((x) => _s(x['id']) == boosterId) ? boosterId : null,
+                  decoration: const InputDecoration(labelText: 'Booster do catálogo'),
+                  items: [const DropdownMenuItem(value:'',child:Text('Preenchimento manual')), ...boosters.map((x) => DropdownMenuItem(value:_s(x['id']),child:Text('${_s(x['name'])} — ${_validationText(x['validation_status'])}')))],
+                  onChanged: (id) { setState(() { boosterId = id ?? ''; final x = boosters.cast<Map<String,dynamic>?>().firstWhere((e) => _s(e?['id']) == boosterId, orElse: () => null); if (x != null) c['booster']!.text = _s(x['name']); }); },
+                ),
+                if (selectedBooster != null) _CatalogInfo(item: selectedBooster, kind: 'booster'),
+                const SizedBox(height: 12), _field('Booster / iniciador utilizado', 'booster'), _field('Quantidade planejada', 'booster_qty_planned', number: true),
+              ]),
+              if (users.isNotEmpty) _planSection('06', 'Equipe envolvida', 'Participantes previstos além do responsável técnico', [
+                ...users.map((u) => CheckboxListTile(
+                  dense: true, contentPadding: EdgeInsets.zero, value: participantIds.contains(_s(u['id'])),
+                  title: Text(_s(u['name']), style: const TextStyle(fontWeight: FontWeight.w800)), subtitle: Text('${_s(u['role'])}${_s(u['team']).isEmpty ? '' : ' · ${_s(u['team'])}'}'),
+                  onChanged: (v) => setState(() { if (v == true) { participantIds.add(_s(u['id'])); } else { participantIds.remove(_s(u['id'])); } }),
+                )),
+              ]),
+              _planSection(users.isNotEmpty ? '07' : '06', 'Controle e localização', 'Parâmetros editáveis até a validação definitiva', [
+                _field('Raio de controle — pessoas (m)', 'people_radius', number: true), _field('Raio de controle — equipamentos (m)', 'equipment_radius', number: true),
+                _field('Latitude do centro', 'center_lat', number: true), _field('Longitude do centro', 'center_lng', number: true), _field('Observações e condicionantes', 'notes', maxLines: 4),
+                Container(padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: const Color(0xFF29220B), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF725A0D))), child: const Text('VALIDAÇÃO PENDENTE COM O CLIENTE: há referência a 500/300 m e 300/500 m. O aplicativo não escolhe a regra automaticamente.', style: TextStyle(color:MinaTheme.yellow2,fontSize:12))),
+              ]),
+              _planSection(users.isNotEmpty ? '08' : '07', 'Cálculos homologados', 'Prévia automática; valores informados permanecem separados', [
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  _CalcCard('Profundidade considerada', '${_effectiveDepth.toStringAsFixed(2)} m', depthMode == 'bench_plus_subdrilling' ? 'calculada' : 'informada'),
+                  _CalcCard('Volume teórico', '${_volume.toStringAsFixed(2)} m³', 'calculado'), _CalcCard('Perfuração total', '${_drilling.toStringAsFixed(2)} m', 'calculado'),
+                  _CalcCard('Carga total estimada', '${_charge.toStringAsFixed(2)} kg', 'calculada'), _CalcCard('Carga média estimada/furo', _chargePerHole == null ? '—' : '${_chargePerHole!.toStringAsFixed(2)} kg', 'calculada'),
+                  _CalcCard('Carga por furo informada', _n(c['charge_per_hole_kg']!.text) > 0 ? '${_n(c['charge_per_hole_kg']!.text).toStringAsFixed(2)} kg' : '—', 'informada'),
+                  _CalcCard('Densidade da rocha', _n(c['rock_density_t_m3']!.text) > 0 ? '${_n(c['rock_density_t_m3']!.text).toStringAsFixed(2)} t/m³' : '—', 'informada'),
+                  _CalcCard('Tonelagem', _tonnage == null ? '—' : '${_tonnage!.toStringAsFixed(2)} t', 'calculada'),
+                ]),
+              ]),
+              _planSection(users.isNotEmpty ? '09' : '08', 'Tabelas técnicas de referência', 'Consulta visual; itens pendentes não alimentam os cálculos', [
+                if (tables.isEmpty) const _StaticNote('Nenhuma tabela técnica cadastrada. O preenchimento manual permanece disponível.')
+                else ...tables.take(8).map((t) => ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.table_chart_outlined, color: MinaTheme.yellow), title: Text(_s(t['name']), style: const TextStyle(fontWeight: FontWeight.w800)), subtitle: Text(_s(t['type'])), trailing: _ValidationChip(_s(t['validation_status'])))),
+              ]),
+              const SizedBox(height: 4),
+              ElevatedButton.icon(onPressed: busy ? null : _save, icon: busy ? const SizedBox.square(dimension:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.save_outlined), label: Text(widget.existing?['status'] == 'Rejeitado' ? 'Salvar e reenviar para revisão' : 'Salvar plano')),
+              const SizedBox(height: 8),
+              const Text('Offline: o plano fica salvo neste aparelho e entra na fila de sincronização.', textAlign: TextAlign.center, style: TextStyle(color:MinaTheme.muted,fontSize:11)),
+            ]);
+          },
+        )),
       ]),
     );
   }
 
-  Widget _field(String label, String key, {bool number = false, int maxLines = 1}) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: TextField(
-          controller: c[key],
-          maxLines: maxLines,
-          keyboardType: number ? const TextInputType.numberWithOptions(decimal: true, signed: true) : TextInputType.text,
-          decoration: InputDecoration(labelText: label),
-          onChanged: (_) => setState(() {}),
-        ),
-      );
+  Widget _planSection(String number, String title, String subtitle, List<Widget> children) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: MCPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(width:34,height:34,alignment:Alignment.center,decoration:BoxDecoration(color:MinaTheme.yellow.withValues(alpha:.10),borderRadius:BorderRadius.circular(9),border:Border.all(color:const Color(0xFF806A20))),child:Text(number,style:const TextStyle(color:MinaTheme.yellow,fontWeight:FontWeight.w900))),
+        const SizedBox(width:10), Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:2),Text(subtitle,style:const TextStyle(color:MinaTheme.muted,fontSize:11))])),
+      ]),
+      const Padding(padding:EdgeInsets.symmetric(vertical:12),child:Divider(height:1)), ...children,
+    ])),
+  );
+
+  Widget _field(String label, String key, {bool number = false, int maxLines = 1, bool enabled = true}) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextField(
+      controller: c[key], enabled: enabled, maxLines: maxLines,
+      keyboardType: number ? const TextInputType.numberWithOptions(decimal:true,signed:true) : TextInputType.text,
+      decoration: InputDecoration(labelText: label, suffixIcon: !enabled ? const Icon(Icons.calculate_outlined, size:18) : null),
+      onChanged: (_) => setState(() {}),
+    ),
+  );
 
   Future<void> _save() async {
     if (c['name']!.text.trim().isEmpty || c['site']!.text.trim().isEmpty || c['team']!.text.trim().isEmpty || c['responsible']!.text.trim().isEmpty) {
-      mcToast(context, 'Preencha nome, frente/local, equipe e responsável.', error: true); return;
+      mcToast(context, 'Preencha nome, frente/local, equipe e responsável.', error:true); return;
     }
     setState(() => busy = true);
     try {
-      final values = <String, dynamic>{for (final e in c.entries) e.key: e.value.text.trim(), 'explosive_type': explosive, 'material_id': materialId, 'team_id': teamId, 'company_id': companyId};
+      final values = <String,dynamic>{
+        for (final e in c.entries) e.key: e.value.text.trim(),
+        'material_id': materialId, 'team_id': teamId, 'company_id': companyId, 'depth_mode': depthMode,
+        'explosive_id': explosiveId, 'explosive_category': explosiveCategory, 'explosive_density_source': explosiveDensitySource,
+        'booster_id': boosterId, 'participant_ids': participantIds.toList(),
+      };
       await widget.controller.savePlan(values, existing: widget.existing);
       if (mounted) { mcToast(context, widget.controller.connectivity.hasNetwork ? 'Plano salvo.' : 'Plano salvo offline.'); Navigator.pop(context); }
-    } catch (e) { if (mounted) mcToast(context, e.toString(), error: true); }
+    } catch (e) { if (mounted) mcToast(context, e.toString(), error:true); }
     finally { if (mounted) setState(() => busy = false); }
   }
 }
+
+class _StaticNote extends StatelessWidget {
+  final String text; const _StaticNote(this.text);
+  @override Widget build(BuildContext context) => Container(width:double.infinity,padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:MinaTheme.panel2,borderRadius:BorderRadius.circular(9),border:Border.all(color:MinaTheme.border)),child:Text(text,style:const TextStyle(color:Color(0xFFC6CED5),fontSize:11)));
+}
+
+class _CatalogInfo extends StatelessWidget {
+  final Map<String,dynamic> item; final String kind; const _CatalogInfo({required this.item,required this.kind});
+  @override Widget build(BuildContext context) {
+    final validated = _s(item['validation_status']) == 'validated';
+    final details = <String>[];
+    if (kind == 'explosive') { if (_n(item['diameter_mm']) > 0) details.add('Ø ${_n(item['diameter_mm']).toStringAsFixed(0)} mm'); if (item['density_kg_l'] != null) details.add('dens. ${item['density_kg_l']} g/cm³'); if (item['kg_per_meter'] != null) details.add('${item['kg_per_meter']} kg/m'); }
+    else { if (item['unit_weight_kg'] != null) details.add('${item['unit_weight_kg']} kg/unidade'); if (_s(item['product_code']).isNotEmpty) details.add(_s(item['product_code'])); }
+    return Padding(padding:const EdgeInsets.only(top:7),child:Row(children:[_ValidationChip(_s(item['validation_status'])),const SizedBox(width:8),Expanded(child:Text(details.isEmpty?'Sem valores adicionais cadastrados.':details.join(' · '),style:const TextStyle(color:MinaTheme.muted,fontSize:11)))]));
+  }
+}
+
+
+class _ValidationChip extends StatelessWidget {
+  final String status; const _ValidationChip(this.status);
+  @override Widget build(BuildContext context) {
+    final validated = status == 'validated'; final rejected = status == 'rejected';
+    final color = validated ? MinaTheme.green : rejected ? MinaTheme.red : MinaTheme.yellow2;
+    final text = validated ? 'Validado' : rejected ? 'Rejeitado' : 'Pendente';
+    return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha:.10),borderRadius:BorderRadius.circular(7),border:Border.all(color:color.withValues(alpha:.55))),child:Text(text,style:TextStyle(color:color,fontSize:10,fontWeight:FontWeight.w800)));
+  }
+}
+
+class _CalcCard extends StatelessWidget {
+  final String label,value,kind; const _CalcCard(this.label,this.value,this.kind);
+  @override Widget build(BuildContext context) => Container(width:150,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:MinaTheme.panel2,borderRadius:BorderRadius.circular(9),border:Border.all(color:MinaTheme.border)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(color:MinaTheme.muted,fontSize:9)),const SizedBox(height:4),Text(value,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:13)),const SizedBox(height:3),Text(kind,style:TextStyle(color:kind=='informada'?MinaTheme.blue:MinaTheme.yellow,fontSize:9))]));
+}
+
+String _validationText(Object? value) => _s(value) == 'validated' ? 'Validado' : _s(value) == 'rejected' ? 'Rejeitado' : 'Pendente';
+String _fmtRange(Object? a, Object? b) { final x = _n(a), y = _n(b); if (x == 0 && y == 0) return '—'; if (y == 0 || (x-y).abs() < .0001) return x.toStringAsFixed(2); return '${x.toStringAsFixed(2)}–${y.toStringAsFixed(2)}'; }
 
 class _Calc extends StatelessWidget {
   final String label; final String value; const _Calc(this.label, this.value);
@@ -462,29 +600,82 @@ class ReportParityDetail extends StatelessWidget {
   final Map<String,dynamic> report;
   final Map<String,dynamic>? operation;
   const ReportParityDetail({super.key, required this.report, this.operation});
+
+  Map<String,dynamic> _map(Object? v) => v is Map ? Map<String,dynamic>.from(v) : <String,dynamic>{};
+  List<Map<String,dynamic>> _maps(Object? v) => v is List ? v.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList() : <Map<String,dynamic>>[];
+  String _value(Object? v,[String unit='']) {
+    if (v == null || _s(v).isEmpty) return '—';
+    if (v is num) {
+      final d=v.toDouble(); final text=d==d.roundToDouble()?d.toInt().toString():d.toStringAsFixed(2).replaceAll(RegExp(r'0+$'),'').replaceAll(RegExp(r'\.$'),'');
+      return '$text$unit';
+    }
+    return '${_s(v)}$unit';
+  }
+  String _answer(Object? status) => switch(_s(status)) {'conform'=>'C','nonconform'=>'NC','na'=>'N/A','pending'=>'Pendente',_=>_s(status).isEmpty?'—':_s(status)};
+
   @override
   Widget build(BuildContext context) {
     final op = operation ?? const <String,dynamic>{};
+    final snapshot=_map(report['snapshot'] ?? op['final_report_snapshot']);
+    final operationSnap=_map(snapshot['operation']);
+    final snapshotPlan=_map(snapshot['plan']);
+    final plan=snapshotPlan.isNotEmpty?snapshotPlan:_map(op['plan_snapshot']);
+    final params=_map(plan['parameters']); final summary=_map(plan['summary']);
+    final snapshotExecution=_map(snapshot['execution']);
+    final execution=snapshotExecution.isNotEmpty?snapshotExecution:_map(op['execution']);
+    final calc=_map(execution['calculations']); final planned=_map(calc['planned']); final executed=_map(calc['executed']);
+    final snapshotParticipants=_maps(snapshot['participants']);
+    final participants=snapshotParticipants.isNotEmpty?snapshotParticipants:_maps(op['participants']);
+    final explosives=_maps(execution['explosives']); final boosters=_maps(execution['boosters']);
+    final snapshotApff=_maps(snapshot['preliminary_analysis']);
+    final apff=snapshotApff.isNotEmpty?snapshotApff:_maps(op['preliminary_analysis']);
+    final snapshotChecklist=_maps(snapshot['checklist']);
+    final checklist=snapshotChecklist.isNotEmpty?snapshotChecklist:_maps(op['checklist_answers']);
+    final trace=_map(snapshot['calculation_traceability']); final snapshotFormulas=_maps(trace['formula_snapshot']); final formulas=snapshotFormulas.isNotEmpty?snapshotFormulas:_maps(summary['formula_snapshot']);
+    final evidence=_map(snapshot['evidence']); final snapshotLocation=_map(evidence['location']); final location=snapshotLocation.isNotEmpty?snapshotLocation:_map(op['location']);
+    final condition=_s(operationSnap['condition']).isNotEmpty?_s(operationSnap['condition']):_s(op['condition']);
+    final responsible=_s(operationSnap['responsible']).isNotEmpty?_s(operationSnap['responsible']):_s(op['responsible']);
+    final site=_s(operationSnap['site']).isNotEmpty?_s(operationSnap['site']):_s(op['site']);
+    final date=_s(operationSnap['date']).isNotEmpty?_s(operationSnap['date']):_s(op['date'] ?? report['date']);
     return Scaffold(
-      appBar: AppBar(title: const Text('Relatório da operação')),
+      appBar: AppBar(title: const Text('Relatório final')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         MCPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Image.asset('assets/logo.png', width: 220),
           const SizedBox(height: 18),
-          Text(_s(report['title']), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 6),
-          MCStatus(_s(report['status']).isEmpty ? 'Emitido' : _s(report['status'])),
+          Text(_s(report['title']).isEmpty?'Relatório Final do Plano de Fogo':_s(report['title']), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6), MCStatus(_s(report['status']).isEmpty ? 'Emitido' : _s(report['status'])),
           const Divider(height: 28),
-          _detail('Frente / local', op['site']), _detail('Equipe', op['team']), _detail('Responsável', op['responsible']), _detail('Data', op['date'] ?? report['date']), _detail('Condição', op['condition']), _detail('Observações', op['observations']),
-          const SizedBox(height: 18),
-          Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: MinaTheme.yellow, borderRadius: BorderRadius.circular(10)), child: const Text('VOLTAR PRA CASA É O MELHOR DESMONTE — Na dúvida, não faça.', textAlign: TextAlign.center, style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900))),
+          _detail('Plano', plan['name']), _detail('Código / revisão', '${_s(plan['code'])} / ${_s(plan['revision'])}'), _detail('Cliente / mina / obra', plan['client_ref'] ?? params['client_ref']), _detail('Frente / local', site), _detail('Equipe', operationSnap['team'] ?? op['team']), _detail('Responsável', responsible), _detail('Data', date), _detail('Condição', condition),
         ])),
+        _section('Planejamento técnico', [
+          _detail('Furos planejados', planned['holes'] ?? params['holes']), _detail('Volume', _value(planned['volume_m3'] ?? summary['volume_m3'],' m³')), _detail('Tonelagem', _value(planned['tonnage_t'] ?? summary['tonnage_t'],' t')), _detail('Perfuração', _value(planned['drilling_m'] ?? summary['drilling_m'],' m')), _detail('Carga estimada', _value(planned['estimated_charge_kg'] ?? summary['estimated_charge_kg'],' kg')),
+        ]),
+        _section('Executado', [
+          _detail('Furos executados', executed['holes'] ?? execution['holes_executed']), _detail('Perfuração executada', _value(executed['drilling_m'] ?? execution['drilling_m_executed'],' m')), _detail('Explosivos', _value(executed['explosive_total_kg'],' kg')), _detail('Boosters', _value(executed['booster_total_qty'],' un')), _detail('Densidade da rocha', _value(executed['rock_density_t_m3'] ?? execution['rock_density_t_m3'],' t/m³')),
+        ]),
+        _section('Equipe envolvida', participants.isEmpty?[const Text('Nenhum participante adicional registrado.',style:TextStyle(color:MinaTheme.muted))]:participants.map((p)=>_detail(_s(p['name']), '${_s(p['role'])}${_s(p['team']).isNotEmpty?' · ${_s(p['team'])}':''}')).toList()),
+        _section('Explosivos utilizados', explosives.isEmpty?[const Text('Nenhum explosivo detalhado.',style:TextStyle(color:MinaTheme.muted))]:explosives.map((e)=>_detail(_s(e['name']), '${_value(e['quantity_kg'],' kg')}${e['kg_per_meter']!=null?' · ${_value(e['kg_per_meter'],' kg/m')}':''}')).toList()),
+        _section('Boosters utilizados', boosters.isEmpty?[const Text('Nenhum booster detalhado.',style:TextStyle(color:MinaTheme.muted))]:boosters.map((b)=>_detail(_s(b['name']), _value(b['quantity'],' un'))).toList()),
+        _section('APFF / análise preliminar', [
+          _detail('Itens', apff.length), _detail('Não conformidades', apff.where((a)=>_s(a['status'])=='nonconform').length), _detail('NC impeditivas', apff.where((a)=>_s(a['status'])=='nonconform'&&a['blocking']==true).length),
+          ...apff.map((a)=>Padding(padding:const EdgeInsets.only(top:8),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_s(a['label']),style:const TextStyle(fontWeight:FontWeight.w700)),Text('${_answer(a['status'])}${_s(a['note']).isNotEmpty?' · ${_s(a['note'])}':''}',style:TextStyle(color:_s(a['status'])=='nonconform'?Colors.orange:MinaTheme.muted,fontSize:12))])))
+        ]),
+        _section('Checklist operacional', checklist.isEmpty?[const Text('Checklist não disponível.',style:TextStyle(color:MinaTheme.muted))]:checklist.map((a)=>_detail(_s(a['label']), _answer(a['status']))).toList()),
+        _section('GPS e observações', [
+          _detail('Localização', location['label']), _detail('Coordenadas', location['lat']==null?'—':'${_s(location['lat'])}, ${_s(location['lng'])}'), _detail('Precisão', location['accuracy']==null?'—':_value(location['accuracy'],' m')), _detail('Observações', operationSnap['observations'] ?? op['observations'])
+        ]),
+        _section('Rastreabilidade dos cálculos', [
+          _detail('Motor / versão', trace['calculation_version'] ?? op['calculation_version'] ?? summary['calculation_version']), _detail('Política', trace['formula_policy'] ?? summary['formula_policy']),
+          ...formulas.map((f)=>_detail('${_s(f['name']).isEmpty?_s(f['key']):_s(f['name'])} · v${_s(f['version'])}', '${_s(f['expression'])}${_s(f['unit']).isNotEmpty?' · ${_s(f['unit'])}':''}')),
+        ]),
+        MCPanel(child: Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: MinaTheme.yellow, borderRadius: BorderRadius.circular(10)), child: const Text('VOLTAR PRA CASA É O MELHOR DESMONTE — Na dúvida, não faça.', textAlign: TextAlign.center, style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)))),
       ]),
     );
   }
-  Widget _detail(String l,Object? v)=>Padding(padding: const EdgeInsets.symmetric(vertical:7), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children:[SizedBox(width:120,child:Text(l,style:const TextStyle(color:MinaTheme.muted,fontSize:12))),Expanded(child:Text(_s(v).isEmpty?'—':_s(v),style:const TextStyle(fontWeight:FontWeight.w700)))]));
+  Widget _section(String title,List<Widget> children)=>Padding(padding:const EdgeInsets.only(top:12),child:MCPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900)),const Divider(height:22),...children])));
+  Widget _detail(String l,Object? v)=>Padding(padding: const EdgeInsets.symmetric(vertical:7), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children:[SizedBox(width:130,child:Text(l,style:const TextStyle(color:MinaTheme.muted,fontSize:12))),Expanded(child:Text(_s(v).isEmpty?'—':_s(v),style:const TextStyle(fontWeight:FontWeight.w700)))]));
 }
-
 class MapParityPage extends StatelessWidget {
   final AppController controller;
   const MapParityPage({super.key, required this.controller});

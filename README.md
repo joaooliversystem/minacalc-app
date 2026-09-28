@@ -1,47 +1,57 @@
-# MinaCalc Pro 2.9.0 — aplicativo Flutter nativo com paridade mobile web
+# MinaCalc Pro 2.14.2 — Flutter / Android
 
-Aplicativo de campo nativo, sem WebView, sincronizado com a API do MinaCalc Pro.
+Aplicativo nativo para operação de campo com primeiro login online e continuidade offline após sincronização inicial.
 
-## Fluxo
+## Versão
+- Flutter app: `2.14.2+2142`
+- API esperada: MinaCalc Pro Web/API `2.14.2`
+- Application ID: `br.com.minacalc.pro`
 
-1. O primeiro login do aparelho exige internet.
-2. Após autenticar, o app baixa o snapshot permitido ao usuário e mantém banco SQLite local.
-3. A experiência visual/navegação segue o mobile web: dashboard, menu, barra inferior, planos, trabalhos, relatórios e cadastros por perfil.
-4. Planos, empresas, equipes, usuários, checklists, aprovações, configurações operacionais e operações de campo podem ser registrados offline conforme a permissão do perfil.
-5. Alterações offline entram em uma fila SQLite local/idempotente.
-6. Ao recuperar acesso real ao servidor, o app envia a fila e baixa alterações incrementais.
-7. Conflitos de versão ficam separados para revisão, sem sobrescrita silenciosa.
-8. Senhas, SMTP e ações que manipulam segredos continuam online por segurança.
+## Recursos consolidados
+- Login e sessão segura.
+- Snapshot/sincronização com a API.
+- Motor de fórmulas publicado, cacheado para uso offline.
+- Plano de Fogo e resultados com rastreabilidade da versão das fórmulas.
+- Operação de campo, APFF, checklist, equipe, furos/perfuração, explosivos e boosters.
+- Fotos, GPS, assinatura, observações e rascunhos offline.
+- Sincronização online → offline → online com idempotência e tratamento de conflitos.
+- Visualização do relatório final consolidado.
+- Mapa com MapLibre/OpenFreeMap, sem chave paga.
 
-## Mapa
+## Build APK de homologação
+Linux/macOS:
+```bash
+./BUILD_APK.sh
+```
+Windows:
+```bat
+BUILD_APK.bat
+```
 
-- MapLibre nativo dentro do app.
-- OpenFreeMap no modo online, sem chave de API.
-- Área operacional pequena pode ser baixada previamente para uso offline.
-- GPS atual, precisão estimada e marcadores por categoria.
-- Pontos de itens controlados são apenas registros informados/capturados pelo responsável; o app não recomenda posicionamento.
-- Atribuição OpenStreetMap/OpenFreeMap permanece visível.
+## Build AAB para Play Store
+1. Copie `android/key.properties.example` para `android/key.properties`.
+2. Informe seu keystore de upload real.
+3. Execute:
 
-## Android
+Linux/macOS:
+```bash
+./BUILD_AAB.sh
+```
+Windows:
+```bat
+BUILD_AAB.bat
+```
 
-- Package: `br.com.minacalc.pro`
-- Android mínimo: API 23.
-- Permissões: internet, estado da rede, câmera e localização aproximada/precisa durante o uso.
-- Não solicita localização em segundo plano.
-- Backup automático Android desativado para proteger o armazenamento seguro de sessão.
+Sem `key.properties`, o build release usa a assinatura debug somente para homologação. Para Play Store, use sempre o keystore de produção/upload.
 
-## Compilação
+## API
+Por padrão o app usa:
+`https://desenvolvimento.joaoprogramador.site/projetos/minacalc/api.php`
 
-Com Flutter 3.47.5 instalado:
+Para outra instalação, compile informando:
+```bash
+flutter build apk --release --dart-define=MINACALC_API_URL=https://SEU-DOMINIO/api.php
+```
 
-`flutter pub get`
-
-`flutter analyze --no-fatal-warnings --no-fatal-infos`
-
-`flutter test`
-
-`flutter build apk --release`
-
-O APK de homologação usa a assinatura de debug configurada no projeto. Antes de publicação na Play Store, configure um keystore de produção.
-
-Também existe `.github/workflows/android-apk.yml` para compilar automaticamente o APK em GitHub Actions.
+## Observação de validação
+As fórmulas técnicas marcadas como pendentes no servidor não são aplicadas automaticamente pelo app. O app utiliza somente versões publicadas e sincronizadas.
