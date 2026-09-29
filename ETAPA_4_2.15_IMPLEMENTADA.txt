@@ -1,0 +1,9 @@
+MinaCalc Pro 2.15 - Etapa 4 concluida
+Motor de calculos automatico App/Offline
+
+- Mesmo motor/fallback da regra Web.
+- Bombeado/ANFO usam diametro do furo.
+- Encartuchado usa diametro do cartucho.
+- Calculos funcionam offline com formulas sincronizadas ou fallback homologado.
+- Plano local salva snapshot dos resultados e versoes.
+- Teste Flutter PF-2026-0002 adicionado para build final.

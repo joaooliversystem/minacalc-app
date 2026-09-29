@@ -8,6 +8,35 @@ import '../../controllers/app_controller.dart';
 import '../../core/i18n.dart';
 import '../theme.dart';
 
+List<Map<String, dynamic>> _opRows(
+  List<Map<String, dynamic>> rows,
+  String group, {
+  Iterable<String> preserveValues = const <String>[],
+}) {
+  final preserved = preserveValues.where((value) => value.isNotEmpty).toSet();
+  final out = rows
+      .where((row) => '${row['group'] ?? ''}' == group && (row['active'] != false || preserved.contains('${row['value'] ?? ''}')))
+      .map((row) => Map<String, dynamic>.from(row))
+      .toList();
+  for (final value in preserved) {
+    if (!out.any((row) => '${row['value'] ?? ''}' == value)) {
+      out.add({'value': value, 'label': value, 'active': false, 'sort_order': 9999, '_historical': true});
+    }
+  }
+  out.sort((a, b) {
+    final ao = (a['sort_order'] as num?)?.toInt() ?? 1000;
+    final bo = (b['sort_order'] as num?)?.toInt() ?? 1000;
+    final cmp = ao.compareTo(bo);
+    return cmp != 0 ? cmp : '${a['label'] ?? ''}'.compareTo('${b['label'] ?? ''}');
+  });
+  return out;
+}
+
+String _opLabel(Map<String, dynamic> row) {
+  final label = '${row['label'] ?? row['value'] ?? ''}';
+  return row['active'] == false ? '$label (arquivado)' : label;
+}
+
 class OperationWizard extends StatefulWidget {
   final AppController controller;
   final Map<String, dynamic> plan;
@@ -44,6 +73,7 @@ class _OperationWizardState extends State<OperationWizard> {
   List<Map<String, dynamic>> participants = [];
   List<Map<String, dynamic>> explosiveCatalog = [];
   List<Map<String, dynamic>> boosterCatalog = [];
+  List<Map<String, dynamic>> operationalOptions = [];
   final Set<String> participantIds = {};
 
   List<String> checklistItems = [];
@@ -123,6 +153,7 @@ class _OperationWizardState extends State<OperationWizard> {
   static String _draftOrPlan(Map<String, dynamic> draft, String key, dynamic fallback) => _text(draft.containsKey(key) ? draft[key] : fallback);
 
   Future<void> _loadReferenceData() async {
+    final draft = widget.initialDraft ?? const <String, dynamic>{};
     final allTeams = await widget.controller.teams();
     final company = '${widget.plan['company_id'] ?? ''}';
     teams = allTeams.where((t) => company.isEmpty || '${t['company_id'] ?? ''}' == company).toList();
@@ -133,9 +164,31 @@ class _OperationWizardState extends State<OperationWizard> {
       final planTeamId = '${widget.plan['team_id'] ?? ''}';
       final sameTeam = planTeamId.isEmpty || '${u['team_id'] ?? ''}'.isEmpty || '${u['team_id'] ?? ''}' == planTeamId;
       return sameCompany && sameTeam;
-    }).toList();
+    }).map((u) => Map<String, dynamic>.from(u)).toList();
+    final historicalParticipants = <Map<String, dynamic>>[];
+    for (final source in [draft['participants_snapshot'], widget.plan['participants']]) {
+      if (source is! List) continue;
+      for (final raw in source) {
+        if (raw is Map) historicalParticipants.add(Map<String, dynamic>.from(raw));
+      }
+    }
+    for (final historical in historicalParticipants) {
+      final id = '${historical['id'] ?? ''}';
+      if (id.isEmpty || !participantIds.contains(id)) continue;
+      final index = participants.indexWhere((u) => '${u['id'] ?? ''}' == id);
+      if (index >= 0) {
+        participants[index] = {...participants[index], ...historical, '_historical_snapshot': true};
+      } else {
+        participants.add({...historical, 'active': false, '_historical_snapshot': true});
+      }
+    }
     final me = '${widget.controller.currentUser?['id'] ?? ''}';
-    if (me.isNotEmpty) participantIds.add(me);
+    if (me.isNotEmpty) {
+      participantIds.add(me);
+      if (!participants.any((u) => '${u['id'] ?? ''}' == me) && widget.controller.currentUser != null) {
+        participants.add({...widget.controller.currentUser!, 'id': me, '_historical_snapshot': true});
+      }
+    }
 
     final models = await widget.controller.checklists();
     Map<String, dynamic>? operational;
@@ -146,20 +199,80 @@ class _OperationWizardState extends State<OperationWizard> {
       if (type == 'operational' && operational == null) operational = m;
       if (type == 'preliminary_analysis' && preliminary == null) preliminary = m;
     }
-    if (operational != null) {
+
+    final draftChecklistItems = draft['checklist_items'];
+    if (draftChecklistItems is List && draftChecklistItems.isNotEmpty) {
+      checklistItems = draftChecklistItems.map((e) => '$e').toList();
+    } else if (operational != null) {
       final raw = operational['items'];
       if (raw is List) checklistItems = raw.map((e) => '$e').toList();
     }
-    final savedChecklist = widget.initialDraft?['checklist'];
-    if (savedChecklist is List && savedChecklist.length == checklistItems.length) {
-      checklist = savedChecklist.map((e) => e == true).toList();
-    } else {
-      checklist = List<bool>.filled(checklistItems.length, false);
+    final savedChecklist = draft['checklist'];
+    checklist = List<bool>.filled(checklistItems.length, false);
+    if (savedChecklist is List) {
+      for (var i = 0; i < savedChecklist.length && i < checklist.length; i++) {
+        checklist[i] = savedChecklist[i] == true;
+      }
     }
-    if (preliminary != null) preliminaryItems = _flattenChecklist(preliminary);
 
-    explosiveCatalog = await widget.controller.explosives();
-    boosterCatalog = await widget.controller.boosters();
+    final draftPreliminary = draft['preliminary_analysis'];
+    if (draftPreliminary is List && draftPreliminary.isNotEmpty) {
+      preliminaryItems = draftPreliminary.whereType<Map>().map((raw) => Map<String, dynamic>.from(raw)).toList();
+    } else if (preliminary != null) {
+      preliminaryItems = _flattenChecklist(preliminary);
+    }
+
+    explosiveCatalog = (await widget.controller.explosives()).map((e) => Map<String, dynamic>.from(e)).toList();
+    boosterCatalog = (await widget.controller.boosters()).map((e) => Map<String, dynamic>.from(e)).toList();
+    final draftExplosives = draft['explosives'];
+    if (draftExplosives is List) {
+      for (final raw in draftExplosives) {
+        if (raw is! Map) continue;
+        final snap = Map<String, dynamic>.from(raw);
+        final id = '${snap['explosive_id'] ?? snap['id'] ?? ''}';
+        if (id.isEmpty) continue;
+        final historical = {
+          'id': id,
+          'name': snap['name'] ?? 'Explosivo utilizado',
+          'category': snap['category'] ?? 'other',
+          'density_kg_l': snap['density_kg_l'],
+          'diameter_mm': snap['diameter_mm'],
+          'kg_per_meter': snap['kg_per_meter'],
+          'validation_status': snap['validation_status'],
+          '_historical_snapshot': true,
+        };
+        final index = explosiveCatalog.indexWhere((e) => '${e['id'] ?? ''}' == id);
+        if (index >= 0) {
+          final active = explosiveCatalog[index]['active'] != false;
+          explosiveCatalog[index] = {...explosiveCatalog[index], ...historical, 'active': active};
+        } else {
+          explosiveCatalog.add({...historical, 'active': false});
+        }
+      }
+    }
+    final draftBoosters = draft['boosters'];
+    if (draftBoosters is List) {
+      for (final raw in draftBoosters) {
+        if (raw is! Map) continue;
+        final snap = Map<String, dynamic>.from(raw);
+        final id = '${snap['booster_id'] ?? snap['id'] ?? ''}';
+        if (id.isEmpty) continue;
+        final historical = {
+          'id': id,
+          'name': snap['name'] ?? 'Booster utilizado',
+          'weight_g': snap['weight_g'],
+          '_historical_snapshot': true,
+        };
+        final index = boosterCatalog.indexWhere((e) => '${e['id'] ?? ''}' == id);
+        if (index >= 0) {
+          final active = boosterCatalog[index]['active'] != false;
+          boosterCatalog[index] = {...boosterCatalog[index], ...historical, 'active': active};
+        } else {
+          boosterCatalog.add({...historical, 'active': false});
+        }
+      }
+    }
+    operationalOptions = await widget.controller.operationalOptions(includeInactive: true);
     if (mounted) setState(() => loading = false);
   }
 
@@ -228,6 +341,10 @@ class _OperationWizardState extends State<OperationWizard> {
   }
 
   Widget _stepBody(AppStrings s) {
+    final conditionOptions = _opRows(operationalOptions, 'operation_condition', preserveValues: [condition]);
+    final depthPresetOptions = _opRows(operationalOptions, 'hole_depth_preset');
+    final stemmingPresetOptions = _opRows(operationalOptions, 'stemming_preset');
+    final dismantleOptions = _opRows(operationalOptions, 'dismantle_type', preserveValues: dismantleType.text.trim().isEmpty ? const <String>[] : <String>[dismantleType.text.trim()]);
     switch (step) {
       case 0:
         return ListView(padding: const EdgeInsets.all(16), children: [
@@ -238,6 +355,8 @@ class _OperationWizardState extends State<OperationWizard> {
           TextField(controller: site, decoration: InputDecoration(labelText: s.t('site'))),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
             value: team.isEmpty ? null : team,
             decoration: InputDecoration(labelText: s.t('team')),
             items: [
@@ -248,9 +367,11 @@ class _OperationWizardState extends State<OperationWizard> {
           ),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
             value: condition,
             decoration: InputDecoration(labelText: s.t('condition')),
-            items: const [DropdownMenuItem(value: 'Conforme', child: Text('Conforme')), DropdownMenuItem(value: 'Atenção', child: Text('Atenção')), DropdownMenuItem(value: 'Aguardando inspeção', child: Text('Aguardando inspeção'))],
+            items: conditionOptions.map((row) => DropdownMenuItem(value: '${row['value']}', child: Text(_opLabel(row)))).toList(),
             onChanged: (v) => setState(() => condition = v ?? 'Conforme'),
           ),
           const SizedBox(height: 18),
@@ -263,7 +384,7 @@ class _OperationWizardState extends State<OperationWizard> {
               dense: true,
               contentPadding: EdgeInsets.zero,
               value: participantIds.contains(id),
-              title: Text('${u['name']}'),
+              title: Text('${u['name']}${u['active'] == false ? ' (histórico)' : ''}'),
               subtitle: Text('${u['role'] ?? ''}${('${u['team'] ?? ''}').isNotEmpty ? ' · ${u['team']}' : ''}'),
               activeColor: MinaTheme.yellow,
               checkColor: Colors.black,
@@ -281,11 +402,41 @@ class _OperationWizardState extends State<OperationWizard> {
           _number(holeLabel: 'Perfuração executada (m)', controller: drillingExecuted),
           _number(holeLabel: 'Densidade da rocha (t/m³)', controller: rockDensity),
           _number(holeLabel: 'Altura média real de furação (m)', controller: actualAverageDepth),
+          if (depthPresetOptions.isNotEmpty) ...[
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              menuMaxHeight: 360,
+              decoration: const InputDecoration(labelText: 'Atalho de profundidade'),
+              items: depthPresetOptions.map((row) => DropdownMenuItem(value: '${row['value']}', child: Text(_opLabel(row)))).toList(),
+              onChanged: (v) => setState(() { if (v != null) actualAverageDepth.text = v; }),
+            ),
+            const SizedBox(height: 12),
+          ],
           _number(holeLabel: 'Altura do tampão (m)', controller: stemmingHeight),
+          if (stemmingPresetOptions.isNotEmpty) ...[
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              menuMaxHeight: 360,
+              decoration: const InputDecoration(labelText: 'Atalho de tampão'),
+              items: stemmingPresetOptions.map((row) => DropdownMenuItem(value: '${row['value']}', child: Text(_opLabel(row)))).toList(),
+              onChanged: (v) => setState(() { if (v != null) stemmingHeight.text = v; }),
+            ),
+            const SizedBox(height: 12),
+          ],
           _number(holeLabel: 'Presença de água (%)', controller: waterPercent),
           TextField(controller: weather, decoration: const InputDecoration(labelText: 'Condições climáticas')),
           const SizedBox(height: 12),
-          TextField(controller: dismantleType, decoration: const InputDecoration(labelText: 'Tipo de desmonte')),
+          if (dismantleOptions.isNotEmpty)
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              menuMaxHeight: 360,
+              value: dismantleType.text.trim().isEmpty ? null : dismantleType.text.trim(),
+              decoration: const InputDecoration(labelText: 'Tipo de desmonte'),
+              items: dismantleOptions.map((row) => DropdownMenuItem(value: '${row['value']}', child: Text(_opLabel(row)))).toList(),
+              onChanged: (v) => setState(() => dismantleType.text = v ?? ''),
+            )
+          else
+            TextField(controller: dismantleType, decoration: const InputDecoration(labelText: 'Tipo de desmonte')),
           const SizedBox(height: 12),
           TextField(controller: scheduledTime, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'Hora programada (HH:MM)')),
           const SizedBox(height: 12),
@@ -307,12 +458,19 @@ class _OperationWizardState extends State<OperationWizard> {
         return ListView.builder(
           padding: const EdgeInsets.all(12),
           itemCount: checklistItems.length,
-          itemBuilder: (_, i) => CheckboxListTile(
-            value: checklist[i],
-            activeColor: MinaTheme.yellow,
-            checkColor: Colors.black,
-            title: Text(checklistItems[i]),
-            onChanged: (v) => setState(() => checklist[i] = v ?? false),
+          itemBuilder: (_, i) => Card(
+            margin: const EdgeInsets.only(bottom: 9),
+            color: checklist[i] ? const Color(0xFF1A2115) : MinaTheme.panel,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: checklist[i] ? const Color(0xFF806A20) : MinaTheme.border2)),
+            child: CheckboxListTile(
+              value: checklist[i],
+              activeColor: MinaTheme.yellow,
+              checkColor: Colors.black,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(checklistItems[i], style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35)),
+              onChanged: (v) => setState(() => checklist[i] = v ?? false),
+            ),
           ),
         );
       case 4:
@@ -372,6 +530,13 @@ class _OperationWizardState extends State<OperationWizard> {
         final nc = preliminaryStatus.values.where((v) => v == 'nonconform').length;
         final expTotal = explosiveQty.values.fold<double>(0, (a, b) => a + b);
         final bstTotal = boosterQty.values.fold<int>(0, (a, b) => a + b);
+        final holesExec = _num(holesExecuted.text).round();
+        final volumePerHole = _num(summary['volume_per_hole_m3']);
+        final chargePerHole = _num(summary['charge_per_hole_kg'] ?? summary['estimated_charge_per_hole_kg']);
+        final referenceVolume = volumePerHole * holesExec;
+        final referenceCharge = chargePerHole * holesExec;
+        final actualChargePerHole = holesExec > 0 ? expTotal / holesExec : null;
+        final actualPowderFactor = referenceVolume > 0 ? expTotal / referenceVolume : null;
         return ListView(padding: const EdgeInsets.all(16), children: [
           _Review(label: s.t('plan'), value: '${widget.plan['name'] ?? widget.plan['code'] ?? ''}'),
           _Review(label: s.t('site'), value: site.text),
@@ -382,7 +547,11 @@ class _OperationWizardState extends State<OperationWizard> {
           _Review(label: 'Perfuração', value: '${drillingExecuted.text} m / ${_text(summary['drilling_m'])} m planejados'),
           _Review(label: 'APFF', value: nc == 0 ? 'Sem NC registrada' : '$nc não conformidade(s)'),
           _Review(label: s.t('checklist'), value: '${checklist.where((v) => v).length}/${checklist.length}'),
-          _Review(label: 'Explosivos', value: '${expTotal.toStringAsFixed(2)} kg'),
+          _Review(label: 'Volume ref. executado', value: '${referenceVolume.toStringAsFixed(2)} m³'),
+          _Review(label: 'Carga ref. executada', value: '${referenceCharge.toStringAsFixed(2)} kg'),
+          _Review(label: 'Explosivos reais', value: '${expTotal.toStringAsFixed(2)} kg'),
+          _Review(label: 'Carga real / furo', value: actualChargePerHole == null ? '—' : '${actualChargePerHole.toStringAsFixed(2)} kg'),
+          _Review(label: 'Razão real', value: actualPowderFactor == null ? '—' : '${actualPowderFactor.toStringAsFixed(3)} kg/m³'),
           _Review(label: 'Boosters', value: '$bstTotal un'),
           _Review(label: s.t('photos'), value: '${photos.length}'),
           _Review(label: s.t('location'), value: location == null ? s.t('pendingStatus') : '${location!['lat']}, ${location!['lng']}'),
@@ -415,7 +584,10 @@ class _OperationWizardState extends State<OperationWizard> {
         widgets.add(Padding(padding: const EdgeInsets.fromLTRB(4, 16, 4, 8), child: Text(section, style: const TextStyle(color: MinaTheme.yellow, fontWeight: FontWeight.w900, fontSize: 16))));
       }
       final blocking = item['blocking'] == true;
+      final selectedStatus = preliminaryStatus[id] ?? 'pending';
       widgets.add(Card(
+        color: selectedStatus == 'nonconform' ? const Color(0xFF241617) : (selectedStatus == 'conform' ? const Color(0xFF142018) : MinaTheme.panel),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: selectedStatus == 'nonconform' ? Colors.orangeAccent : (selectedStatus == 'conform' ? MinaTheme.green.withValues(alpha: .65) : MinaTheme.border2))),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -423,13 +595,19 @@ class _OperationWizardState extends State<OperationWizard> {
             if (blocking) const Padding(padding: EdgeInsets.only(top: 4), child: Text('Item marcado como impeditivo no formulário de referência.', style: TextStyle(color: Colors.orangeAccent, fontSize: 12))),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
               value: preliminaryStatus[id] == null || preliminaryStatus[id] == 'pending' ? null : preliminaryStatus[id],
               decoration: const InputDecoration(labelText: 'Situação'),
-              items: const [
-                DropdownMenuItem(value: 'conform', child: Text('C — Conforme')),
-                DropdownMenuItem(value: 'nonconform', child: Text('NC — Não conforme')),
-                DropdownMenuItem(value: 'na', child: Text('N/A — Não aplicável')),
-              ],
+              items: _opRows(
+                operationalOptions,
+                'checklist_answer',
+                preserveValues: selectedStatus == 'pending' ? const <String>[] : <String>[selectedStatus],
+              ).where((row) => item['allow_na'] != false || '${row['value']}' != 'na').map((row) {
+                final description = '${row['description'] ?? ''}'.trim();
+                final label = _opLabel(row);
+                return DropdownMenuItem(value: '${row['value']}', child: Text(description.isEmpty ? label : '$label — $description'));
+              }).toList(),
               onChanged: (v) => setState(() => preliminaryStatus[id] = v ?? 'pending'),
             ),
             const SizedBox(height: 10),
@@ -453,10 +631,11 @@ class _OperationWizardState extends State<OperationWizard> {
         const Text('Informe somente quantidades efetivamente utilizadas.', style: TextStyle(color: Colors.white60)),
         const SizedBox(height: 12),
         if (explosiveCatalog.isEmpty) const Text('Catálogo de explosivos indisponível.'),
-        ...explosiveCatalog.where((e) => e['active'] != false).map((e) {
+        ...explosiveCatalog.where((e) => e['active'] != false || (explosiveQty['${e['id']}'] ?? 0) > 0).map((e) {
           final id = '${e['id']}';
+          final historical = e['active'] == false;
           return Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${e['name']}', style: const TextStyle(fontWeight: FontWeight.w800)), Text('${e['category'] ?? ''}', style: const TextStyle(color: Colors.white60))])),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${e['name']}${historical ? ' (histórico)' : ''}', style: const TextStyle(fontWeight: FontWeight.w800)), Text('${e['category'] ?? ''}${historical ? ' · preservado do rascunho' : ''}', style: const TextStyle(color: Colors.white60))])),
             const SizedBox(width: 12),
             SizedBox(width: 120, child: TextFormField(initialValue: explosiveQty[id]?.toString() ?? '', keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'kg'), onChanged: (v) { final q = _num(v); if (q > 0) explosiveQty[id] = q; else explosiveQty.remove(id); })),
           ])));
@@ -465,10 +644,11 @@ class _OperationWizardState extends State<OperationWizard> {
         const Text('Boosters utilizados', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
         const SizedBox(height: 12),
         if (boosterCatalog.isEmpty) const Text('Catálogo de boosters indisponível.'),
-        ...boosterCatalog.where((e) => e['active'] != false).map((b) {
+        ...boosterCatalog.where((b) => b['active'] != false || (boosterQty['${b['id']}'] ?? 0) > 0).map((b) {
           final id = '${b['id']}';
+          final historical = b['active'] == false;
           return Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${b['name']}', style: const TextStyle(fontWeight: FontWeight.w800)), if (b['weight_g'] != null) Text('${b['weight_g']} g', style: const TextStyle(color: Colors.white60))])),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${b['name']}${historical ? ' (histórico)' : ''}', style: const TextStyle(fontWeight: FontWeight.w800)), if (b['weight_g'] != null) Text('${b['weight_g']} g${historical ? ' · preservado do rascunho' : ''}', style: const TextStyle(color: Colors.white60))])),
             const SizedBox(width: 12),
             SizedBox(width: 120, child: TextFormField(initialValue: boosterQty[id]?.toString() ?? '', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'un'), onChanged: (v) { final q = _num(v).round(); if (q > 0) boosterQty[id] = q; else boosterQty.remove(id); })),
           ])));
@@ -527,13 +707,16 @@ class _OperationWizardState extends State<OperationWizard> {
           'name': '${e['name'] ?? ''}',
           'category': '${e['category'] ?? 'other'}',
           'density_kg_l': e['density_kg_l'],
+          'diameter_mm': e['diameter_mm'],
           'kg_per_meter': e['kg_per_meter'],
+          'validation_status': e['validation_status'],
           'quantity_kg': explosiveQty['${e['id']}'],
           'notes': '',
         }).toList();
     final boosters = boosterCatalog.where((b) => (boosterQty['${b['id']}'] ?? 0) > 0).map((b) => {
           'booster_id': '${b['id']}',
           'name': '${b['name'] ?? ''}',
+          'weight_g': b['weight_g'],
           'quantity': boosterQty['${b['id']}'],
           'unit': 'un',
           'notes': '',
@@ -548,10 +731,32 @@ class _OperationWizardState extends State<OperationWizard> {
       'site': site.text.trim(),
       'team': team,
       'condition': condition,
+      'responsible_snapshot': {
+        'id': '${widget.controller.currentUser?['id'] ?? ''}',
+        'name': '${widget.controller.currentUser?['name'] ?? ''}',
+        'role': '${widget.controller.currentUser?['role'] ?? ''}',
+      },
       'participant_ids': participantIds.toList(),
+      'participants_snapshot': participants.where((u) => participantIds.contains('${u['id'] ?? ''}')).map((u) => {
+        'id': u['id'],
+        'name': u['name'],
+        'role': u['role'],
+        'team': u['team'],
+        'team_id': u['team_id'],
+        'company_id': u['company_id'],
+      }).toList(),
       'holes_executed': _num(holesExecuted.text).round(),
       'drilling_m_executed': drillingExecuted.text.trim().isEmpty ? null : _num(drillingExecuted.text),
       'rock_density_t_m3': rockDensity.text.trim().isEmpty ? null : _num(rockDensity.text),
+      'option_snapshot': {
+        'operation_condition': _opRows(operationalOptions, 'operation_condition', preserveValues: [condition])
+            .where((row) => '${row['value']}' == condition)
+            .map((row) => {'value': row['value'], 'label': row['label'], 'description': row['description']})
+            .toList(),
+        'checklist_answers': _opRows(operationalOptions, 'checklist_answer')
+            .map((row) => {'value': row['value'], 'label': row['label'], 'description': row['description']})
+            .toList(),
+      },
       'preliminary_context': {
         'actual_average_hole_depth_m': actualAverageDepth.text.trim().isEmpty ? null : _num(actualAverageDepth.text),
         'stemming_height_m': stemmingHeight.text.trim().isEmpty ? null : _num(stemmingHeight.text),

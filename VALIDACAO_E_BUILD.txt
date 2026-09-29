@@ -1,7 +1,7 @@
-MINACALC PRO 2.14.2 — PRE-CHECAGEM PARA BUILD ANDROID
+MINACALC PRO 2.15.0 — PRE-CHECAGEM PARA BUILD ANDROID
 
-Versao Flutter: 2.14.2+2142
-API esperada: MinaCalc Pro Web/API 2.14.2
+Versao Flutter: 2.15.0+2150
+API esperada: MinaCalc Pro Web/API 2.15.0
 Application ID: br.com.minacalc.pro
 
 CHECAGENS REALIZADAS:

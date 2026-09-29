@@ -49,6 +49,18 @@ class MinaTheme {
           color: states.contains(WidgetState.selected) ? yellow : const Color(0xFF7F8992),
         )),
       ),
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      checkboxTheme: CheckboxThemeData(
+        visualDensity: const VisualDensity(horizontal: 0, vertical: 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        side: const BorderSide(color: Color(0xFF69747E), width: 1.4),
+        fillColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? yellow : const Color(0xFF141A20)),
+        checkColor: const WidgetStatePropertyAll(Color(0xFF080B0D)),
+      ),
+      radioTheme: RadioThemeData(
+        visualDensity: const VisualDensity(horizontal: 0, vertical: 0),
+        fillColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? yellow : const Color(0xFF9DA6B0)),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF141A20),

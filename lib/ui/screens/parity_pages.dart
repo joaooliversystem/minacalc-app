@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/app_controller.dart';
+import '../../services/blast_calculation.dart';
+import '../../services/formula_engine.dart';
 import '../theme.dart';
 import '../widgets/web_parity.dart';
 import 'jobs_screen.dart';
@@ -10,6 +12,35 @@ import 'sync_screen.dart';
 
 String _s(Object? v) => (v ?? '').toString();
 double _n(Object? v) => double.tryParse(_s(v).replaceAll(',', '.')) ?? 0;
+
+List<Map<String, dynamic>> _optionRows(
+  List<Map<String, dynamic>> rows,
+  String group, {
+  Iterable<String> preserveValues = const <String>[],
+}) {
+  final preserved = preserveValues.where((value) => value.isNotEmpty).toSet();
+  final out = rows
+      .where((row) => _s(row['group']) == group && (row['active'] != false || preserved.contains(_s(row['value']))))
+      .map((row) => Map<String, dynamic>.from(row))
+      .toList();
+  for (final value in preserved) {
+    if (!out.any((row) => _s(row['value']) == value)) {
+      out.add({'value': value, 'label': value, 'active': false, 'sort_order': 9999, '_historical': true});
+    }
+  }
+  out.sort((a, b) {
+    final ao = (a['sort_order'] as num?)?.toInt() ?? 1000;
+    final bo = (b['sort_order'] as num?)?.toInt() ?? 1000;
+    final cmp = ao.compareTo(bo);
+    return cmp != 0 ? cmp : _s(a['label']).compareTo(_s(b['label']));
+  });
+  return out;
+}
+
+String _optionText(Map<String, dynamic> row) {
+  final label = _s(row['label']).isEmpty ? _s(row['value']) : _s(row['label']);
+  return row['active'] == false ? '$label (arquivado)' : label;
+}
 
 String _tr(AppController c, String pt, String en, String es) => switch (c.language) {
       'en' => en,
@@ -58,7 +89,7 @@ class DashboardParityPage extends StatelessWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  MCKpi(icon: Icons.assignment_outlined, label: 'Planos ativos', value: '$active'),
+                  MCKpi(icon: Icons.assignment_outlined, label: 'Planos liberados', value: '$active'),
                   MCKpi(icon: Icons.engineering_outlined, label: 'Operações', value: '${operations.length}'),
                   MCKpi(icon: Icons.description_outlined, label: 'Relatórios', value: '${reports.length}'),
                   MCKpi(icon: Icons.warning_amber_outlined, label: 'Alertas abertos', value: '$unseen', warning: unseen > 0),
@@ -140,11 +171,16 @@ class _PlansParityPageState extends State<PlansParityPage> {
   String status = 'Todos';
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: widget.controller.plans(),
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait<dynamic>([
+        widget.controller.plans(),
+        widget.controller.operationalOptions(group: 'plan_status', preserveValues: status == 'Todos' ? const <String>[] : <String>[status]),
+      ]),
       builder: (context, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        final rows = snap.data!.where((p) {
+        final plans = List<Map<String, dynamic>>.from(snap.data![0] as List);
+        final statusRows = List<Map<String, dynamic>>.from(snap.data![1] as List);
+        final rows = plans.where((p) {
           final okStatus = status == 'Todos' || _s(p['status']) == status;
           final hay = '${_s(p['name'])} ${_s(p['site'])} ${_s(p['code'])}'.toLowerCase();
           return okStatus && (q.isEmpty || hay.contains(q.toLowerCase()));
@@ -154,14 +190,19 @@ class _PlansParityPageState extends State<PlansParityPage> {
           children: [
             MCPageHeader(
               title: 'Planos cadastrados',
-              subtitle: 'Controle de versões, dimensionamento e liberação',
+              subtitle: 'Ativo = liberado para campo; conclusão é registrada na operação',
               action: widget.controller.canOperate ? IconButton.filled(onPressed: () => _editPlan(context), icon: const Icon(Icons.add)) : null,
             ),
             TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Pesquisar plano, código ou frente'), onChanged: (v) => setState(() => q = v)),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
               value: status,
-              items: const ['Todos', 'Ativo', 'Em revisão', 'Rejeitado', 'Pausado', 'Arquivado'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
+              items: [
+                const DropdownMenuItem(value: 'Todos', child: Text('Todos')),
+                ...statusRows.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))),
+              ],
               onChanged: (v) => setState(() => status = v ?? 'Todos'),
               decoration: const InputDecoration(labelText: 'Situação'),
             ),
@@ -215,7 +256,7 @@ class _PlanCard extends StatelessWidget {
       Text('${_s(plan['site'])} • ${_s(plan['team'])}', style: const TextStyle(color: MinaTheme.muted)),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        MCStatus(_s(plan['status'])),
+        MCStatus(_s(plan['status']) == 'Ativo' ? 'Ativo · liberado' : _s(plan['status'])),
         _MiniMetric('${_n(summary['volume_m3']).toStringAsFixed(0)} m³'),
         _MiniMetric('${_n(summary['drilling_m']).toStringAsFixed(0)} m perfuração'),
         if (_n(summary['tonnage_t']) > 0) _MiniMetric('${_n(summary['tonnage_t']).toStringAsFixed(0)} t'),
@@ -297,8 +338,8 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
     String v(String key, [Object? fallback]) => _s(z.containsKey(key) ? z[key] : (p[key] ?? fallback));
     c = {
       for (final key in [
-        'name','client_ref','site','team','responsible','rock_density_t_m3','bench_height','hole_depth','subdrilling','inclination_deg','hole_diameter_mm','holes','burden','spacing',
-        'explosive_type','explosive_variant','explosive_density','kg_per_meter','charge_per_hole_kg','powder_factor','booster','booster_qty_planned','people_radius','equipment_radius','center_lat','center_lng','notes'
+        'name','client_ref','site','team','responsible','rock_density_t_m3','bench_height','hole_depth','subdrilling','stemming_height_m','inclination_deg','hole_diameter_mm','holes','burden','spacing',
+        'explosive_type','explosive_variant','explosive_density','explosive_diameter_mm','kg_per_meter','charge_per_hole_kg','powder_factor','booster','booster_qty_planned','people_radius','equipment_radius','center_lat','center_lng','notes'
       ]) key: TextEditingController(text: v(key)),
     };
     materialId = v('material_id');
@@ -312,22 +353,12 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
     participantIds.addAll((p['participant_ids'] as List? ?? const []).map((e) => e.toString()));
     if (c['responsible']!.text.isEmpty) c['responsible']!.text = _s(widget.controller.currentUser?['name']);
     _references = Future.wait<dynamic>([
-      widget.controller.teams(), widget.controller.materials(), widget.controller.explosives(), widget.controller.boosters(), widget.controller.technicalTables(), widget.controller.users(),
+      widget.controller.teams(), widget.controller.materials(), widget.controller.explosives(), widget.controller.boosters(), widget.controller.technicalTables(), widget.controller.users(), widget.controller.operationalOptions(includeInactive: true), widget.controller.formulas(),
     ]);
   }
 
   @override
   void dispose() { for (final x in c.values) { x.dispose(); } super.dispose(); }
-
-  double get _bench => _n(c['bench_height']!.text);
-  double get _sub => _n(c['subdrilling']!.text);
-  int get _holes => _n(c['holes']!.text).round();
-  double get _effectiveDepth => depthMode == 'bench_plus_subdrilling' ? _bench + _sub : _n(c['hole_depth']!.text);
-  double get _volume => _n(c['burden']!.text) * _n(c['spacing']!.text) * _bench * _holes;
-  double get _drilling => _effectiveDepth * _holes;
-  double get _charge => _volume * _n(c['powder_factor']!.text);
-  double? get _chargePerHole => _holes > 0 ? _charge / _holes : null;
-  double? get _tonnage { final d = _n(c['rock_density_t_m3']!.text); return d > 0 ? _volume * d : null; }
 
   @override
   Widget build(BuildContext context) {
@@ -354,18 +385,44 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
           builder: (context, snap) {
             if (!snap.hasData) return const Center(child: CircularProgressIndicator());
             final teams = List<Map<String,dynamic>>.from(snap.data![0] as List);
-            final materials = List<Map<String,dynamic>>.from(snap.data![1] as List);
-            final explosives = List<Map<String,dynamic>>.from(snap.data![2] as List).where((x) => x['active'] != false).toList();
-            final boosters = List<Map<String,dynamic>>.from(snap.data![3] as List).where((x) => x['active'] != false).toList();
+            final materials = List<Map<String,dynamic>>.from(snap.data![1] as List).where((x) => x['active'] != false || _s(x['id']) == materialId).toList();
+            final explosives = List<Map<String,dynamic>>.from(snap.data![2] as List).where((x) => x['active'] != false || _s(x['id']) == explosiveId).toList();
+            final boosters = List<Map<String,dynamic>>.from(snap.data![3] as List).where((x) => x['active'] != false || _s(x['id']) == boosterId).toList();
             final tables = List<Map<String,dynamic>>.from(snap.data![4] as List).where((x) => x['active'] != false).toList();
-            final users = List<Map<String,dynamic>>.from(snap.data![5] as List).where((x) => x['active'] != false).toList();
+            final users = List<Map<String,dynamic>>.from(snap.data![5] as List).where((x) => x['active'] != false || participantIds.contains(_s(x['id']))).toList();
+            final operationalOptions = List<Map<String,dynamic>>.from(snap.data![6] as List);
+            final depthOptions = _optionRows(operationalOptions, 'depth_mode', preserveValues: [depthMode]);
+            final depthPresetOptions = _optionRows(operationalOptions, 'hole_depth_preset');
+            final diameterPresetOptions = _optionRows(operationalOptions, 'hole_diameter_preset');
+            final stemmingPresetOptions = _optionRows(operationalOptions, 'stemming_preset');
+            final categoryOptions = _optionRows(operationalOptions, 'explosive_category', preserveValues: [explosiveCategory]);
+            final densitySourceOptions = _optionRows(operationalOptions, 'density_source', preserveValues: [explosiveDensitySource]);
             final material = materials.cast<Map<String,dynamic>?>().firstWhere((m) => _s(m?['id']) == materialId, orElse: () => null);
             final selectedExplosive = explosives.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == explosiveId, orElse: () => null);
             final selectedBooster = boosters.cast<Map<String,dynamic>?>().firstWhere((x) => _s(x?['id']) == boosterId, orElse: () => null);
+            final formulaRows = List<Map<String,dynamic>>.from(snap.data![7] as List);
+            final calculation = BlastCalculation.calculate(
+              formulaEngine: FormulaEngine(formulaRows),
+              explosiveCategory: explosiveCategory,
+              holeDiameterMm: _n(c['hole_diameter_mm']!.text),
+              explosiveDiameterMm: _n(c['explosive_diameter_mm']!.text),
+              explosiveDensityGcm3: _n(c['explosive_density']!.text),
+              benchHeightM: _n(c['bench_height']!.text),
+              holeDepthM: _n(c['hole_depth']!.text),
+              subdrillingM: _n(c['subdrilling']!.text),
+              depthMode: depthMode,
+              stemmingHeightM: _n(c['stemming_height_m']!.text),
+              holes: _n(c['holes']!.text).round(),
+              burdenM: _n(c['burden']!.text),
+              spacingM: _n(c['spacing']!.text),
+              rockDensityTm3: _n(c['rock_density_t_m3']!.text),
+            );
             return ListView(controller: scroll, padding: const EdgeInsets.fromLTRB(14, 14, 14, 28), children: [
               _planSection('01', 'Identificação', 'Dados do plano, obra, equipe e fluxo de aprovação', [
                 _field('Nome do plano *', 'name'), _field('Cliente / mina / obra / identificação', 'client_ref'), _field('Frente / local *', 'site'),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: teams.any((t) => _s(t['id']) == teamId) ? teamId : null,
                   decoration: const InputDecoration(labelText: 'Equipe *'),
                   items: teams.map((t) => DropdownMenuItem(value: _s(t['id']), child: Text(_s(t['name'])))).toList(),
@@ -376,55 +433,100 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
               ]),
               _planSection('02', 'Bancada e perfuração', 'Geometria principal e profundidade usada nos cálculos homologados', [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: materials.any((m) => _s(m['id']) == materialId) ? materialId : null,
                   decoration: const InputDecoration(labelText: 'Material / tipo de rocha'),
-                  items: materials.map((m) => DropdownMenuItem(value: _s(m['id']), child: Text(_s(m['name'])))).toList(),
+                  items: materials.map((m) => DropdownMenuItem(value: _s(m['id']), child: Text('${_s(m['name'])}${m['active'] == false ? ' (arquivado)' : ''}'))).toList(),
                   onChanged: (v) => setState(() => materialId = v ?? ''),
                 ),
                 if (material != null) Padding(padding: const EdgeInsets.only(top: 7), child: Text('Referência cadastrada: ${_fmtRange(material['density_min'], material['density_max'])} t/m³. Não aplicada automaticamente.', style: const TextStyle(color: MinaTheme.muted, fontSize: 11))),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: depthMode,
                   decoration: const InputDecoration(labelText: 'Modo da profundidade'),
-                  items: const [DropdownMenuItem(value:'manual',child:Text('Informada manualmente')),DropdownMenuItem(value:'bench_plus_subdrilling',child:Text('Bancada + subfuração'))],
+                  items: depthOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
                   onChanged: (v) => setState(() => depthMode = v ?? 'manual'),
                 ),
                 const SizedBox(height: 12), _field('Densidade da rocha usada (t/m³)', 'rock_density_t_m3', number: true), _field('Altura da bancada (m)', 'bench_height', number: true),
+                if (depthPresetOptions.isNotEmpty) DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
+                  decoration: const InputDecoration(labelText: 'Atalho de profundidade'),
+                  items: depthPresetOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
+                  onChanged: depthMode == 'manual' ? (v) => setState(() { if (v != null) c['hole_depth']!.text = v; }) : null,
+                ),
+                if (depthPresetOptions.isNotEmpty) const SizedBox(height: 12),
                 _field('Profundidade informada do furo (m)', 'hole_depth', number: true, enabled: depthMode == 'manual'), _field('Subfuração (m)', 'subdrilling', number: true),
-                _field('Inclinação (graus)', 'inclination_deg', number: true), _field('Diâmetro do furo (mm)', 'hole_diameter_mm', number: true),
+                if (stemmingPresetOptions.isNotEmpty) DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
+                  decoration: const InputDecoration(labelText: 'Atalho de tampão'),
+                  items: stemmingPresetOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
+                  onChanged: (v) => setState(() { if (v != null) c['stemming_height_m']!.text = v; }),
+                ),
+                if (stemmingPresetOptions.isNotEmpty) const SizedBox(height: 12),
+                _field('Tampão (m)', 'stemming_height_m', number: true),
+                _field('Inclinação (graus)', 'inclination_deg', number: true),
+                if (diameterPresetOptions.isNotEmpty) DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
+                  decoration: const InputDecoration(labelText: 'Atalho de diâmetro do furo'),
+                  items: diameterPresetOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
+                  onChanged: (v) => setState(() { if (v != null) c['hole_diameter_mm']!.text = v; }),
+                ),
+                if (diameterPresetOptions.isNotEmpty) const SizedBox(height: 12),
+                _field('Diâmetro do furo (mm)', 'hole_diameter_mm', number: true),
               ]),
               _planSection('03', 'Malha', 'Parâmetros geométricos usados no volume e na perfuração total', [
                 _field('Quantidade de furos', 'holes', number: true), _field('Afastamento (m)', 'burden', number: true), _field('Espaçamento (m)', 'spacing', number: true),
                 const _StaticNote('Volume = bancada × afastamento × espaçamento × nº de furos. Nenhuma fórmula adicional é aplicada.'),
               ]),
-              _planSection('04', 'Explosivos', 'Catálogo técnico ou preenchimento manual, sem recomendação automática', [
+              _planSection('04', 'Explosivos', 'Selecione o explosivo; kg/m, carga/furo e razão são calculados automaticamente', [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: explosives.any((x) => _s(x['id']) == explosiveId) ? explosiveId : null,
                   decoration: const InputDecoration(labelText: 'Explosivo do catálogo'),
-                  items: [const DropdownMenuItem(value:'',child:Text('Preenchimento manual')), ...explosives.map((x) => DropdownMenuItem(value:_s(x['id']),child:Text('${_s(x['name'])} — ${_validationText(x['validation_status'])}')))],
-                  onChanged: (id) { setState(() { explosiveId = id ?? ''; final x = explosives.cast<Map<String,dynamic>?>().firstWhere((e) => _s(e?['id']) == explosiveId, orElse: () => null); if (x != null) { c['explosive_type']!.text = _s(x['name']); explosiveCategory = _s(x['category']).isEmpty ? 'other' : _s(x['category']); if (c['explosive_variant']!.text.isEmpty) c['explosive_variant']!.text = [_s(x['manufacturer']), _s(x['product_code']), _n(x['diameter_mm']) > 0 ? 'Ø ${_n(x['diameter_mm']).toStringAsFixed(0)} mm' : ''].where((e) => e.isNotEmpty).join(' · '); if (_s(x['validation_status']) == 'validated') { if (x['density_kg_l'] != null) c['explosive_density']!.text = '${x['density_kg_l']}'; if (x['kg_per_meter'] != null) c['kg_per_meter']!.text = '${x['kg_per_meter']}'; explosiveDensitySource = 'catalog'; } else { explosiveDensitySource = 'manual'; } } }); },
+                  items: [const DropdownMenuItem(value:'',child:Text('Preenchimento manual')), ...explosives.map((x) => DropdownMenuItem(value:_s(x['id']),child:Text('${_s(x['name'])}${x['active'] == false ? ' (arquivado)' : ''} — ${_validationText(x['validation_status'])}')))],
+                  onChanged: (id) { setState(() { explosiveId = id ?? ''; final x = explosives.cast<Map<String,dynamic>?>().firstWhere((e) => _s(e?['id']) == explosiveId, orElse: () => null); if (x != null) { c['explosive_type']!.text = _s(x['name']); explosiveCategory = _s(x['category']).isEmpty ? 'other' : _s(x['category']); if (c['explosive_variant']!.text.isEmpty) c['explosive_variant']!.text = [_s(x['product_code']), _n(x['diameter_mm']) > 0 ? 'Ø ${_n(x['diameter_mm']).toStringAsFixed(0)} mm' : ''].where((e) => e.isNotEmpty).join(' · '); final status = _s(x['validation_status']); if (status == 'validated' || status == 'validated_document') { if (x['density_kg_l'] != null) c['explosive_density']!.text = '${x['density_kg_l']}'; if (x['diameter_mm'] != null && _n(x['diameter_mm']) > 0) c['explosive_diameter_mm']!.text = '${x['diameter_mm']}'; explosiveDensitySource = 'catalog'; } else { explosiveDensitySource = 'manual'; } } }); },
                 ),
                 if (selectedExplosive != null) _CatalogInfo(item: selectedExplosive, kind: 'explosive'),
                 const SizedBox(height: 12), _field('Nome / tipo utilizado', 'explosive_type'),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: explosiveCategory,
                   decoration: const InputDecoration(labelText: 'Categoria'),
-                  items: const [DropdownMenuItem(value:'anfo',child:Text('ANFO')),DropdownMenuItem(value:'emulsion_pumped',child:Text('Emulsão bombeada')),DropdownMenuItem(value:'cartridge',child:Text('Encartuchado')),DropdownMenuItem(value:'other',child:Text('Outro'))],
+                  items: categoryOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
                   onChanged: (v) => setState(() => explosiveCategory = v ?? 'other'),
                 ),
                 const SizedBox(height: 12), _field('Variação / apresentação', 'explosive_variant'),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: explosiveDensitySource,
                   decoration: const InputDecoration(labelText: 'Origem da densidade / kg/m'),
-                  items: const [DropdownMenuItem(value:'manual',child:Text('Informado manualmente')),DropdownMenuItem(value:'catalog',child:Text('Catálogo técnico')),DropdownMenuItem(value:'imported',child:Text('Tabela importada'))],
+                  items: densitySourceOptions.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
                   onChanged: (v) => setState(() => explosiveDensitySource = v ?? 'manual'),
                 ),
-                const SizedBox(height: 12), _field('Densidade do explosivo (g/cm³)', 'explosive_density', number: true), _field('Kg por metro (informado)', 'kg_per_meter', number: true),
-                _field('Carga por furo (kg, informada)', 'charge_per_hole_kg', number: true), _field('Razão de carga validada (kg/m³)', 'powder_factor', number: true),
+                const SizedBox(height: 12), _field('Densidade do explosivo (g/cm³)', 'explosive_density', number: true),
+                _field('Diâmetro do cartucho / explosivo (mm)', 'explosive_diameter_mm', number: true, enabled: explosiveCategory == 'cartridge' || explosiveCategory == 'other'),
+                _StaticNote(explosiveCategory == 'cartridge'
+                    ? 'Encartuchado: o cálculo usa o diâmetro do cartucho/explosivo.'
+                    : explosiveCategory == 'emulsion_pumped'
+                        ? 'Emulsão bombeada: o cálculo usa automaticamente o diâmetro do furo.'
+                        : explosiveCategory == 'anfo'
+                            ? 'ANFO a granel: o cálculo usa o diâmetro do furo.'
+                            : 'Categoria Outro: usa o diâmetro do explosivo quando informado; caso contrário, o diâmetro do furo.'),
                 if (selectedExplosive != null && _s(selectedExplosive['validation_status']) != 'validated') const Padding(padding: EdgeInsets.only(top: 2), child: Text('Item ainda não validado: valores numéricos do catálogo não são aplicados automaticamente.', style: TextStyle(color: MinaTheme.yellow2, fontSize: 11))),
               ]),
               _planSection('05', 'Booster / iniciador', 'Registro do tipo e da quantidade planejada', [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
                   value: boosters.any((x) => _s(x['id']) == boosterId) ? boosterId : null,
                   decoration: const InputDecoration(labelText: 'Booster do catálogo'),
                   items: [const DropdownMenuItem(value:'',child:Text('Preenchimento manual')), ...boosters.map((x) => DropdownMenuItem(value:_s(x['id']),child:Text('${_s(x['name'])} — ${_validationText(x['validation_status'])}')))],
@@ -445,14 +547,20 @@ class _PlanEditorSheetState extends State<PlanEditorSheet> {
                 _field('Latitude do centro', 'center_lat', number: true), _field('Longitude do centro', 'center_lng', number: true), _field('Observações e condicionantes', 'notes', maxLines: 4),
                 Container(padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: const Color(0xFF29220B), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF725A0D))), child: const Text('VALIDAÇÃO PENDENTE COM O CLIENTE: há referência a 500/300 m e 300/500 m. O aplicativo não escolhe a regra automaticamente.', style: TextStyle(color:MinaTheme.yellow2,fontSize:12))),
               ]),
-              _planSection(users.isNotEmpty ? '08' : '07', 'Cálculos homologados', 'Prévia automática; valores informados permanecem separados', [
+              _planSection(users.isNotEmpty ? '08' : '07', 'Cálculos automáticos', 'Mesma regra no app online e offline; resultados são gravados com snapshot', [
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  _CalcCard('Profundidade considerada', '${_effectiveDepth.toStringAsFixed(2)} m', depthMode == 'bench_plus_subdrilling' ? 'calculada' : 'informada'),
-                  _CalcCard('Volume teórico', '${_volume.toStringAsFixed(2)} m³', 'calculado'), _CalcCard('Perfuração total', '${_drilling.toStringAsFixed(2)} m', 'calculado'),
-                  _CalcCard('Carga total estimada', '${_charge.toStringAsFixed(2)} kg', 'calculada'), _CalcCard('Carga média estimada/furo', _chargePerHole == null ? '—' : '${_chargePerHole!.toStringAsFixed(2)} kg', 'calculada'),
-                  _CalcCard('Carga por furo informada', _n(c['charge_per_hole_kg']!.text) > 0 ? '${_n(c['charge_per_hole_kg']!.text).toStringAsFixed(2)} kg' : '—', 'informada'),
-                  _CalcCard('Densidade da rocha', _n(c['rock_density_t_m3']!.text) > 0 ? '${_n(c['rock_density_t_m3']!.text).toStringAsFixed(2)} t/m³' : '—', 'informada'),
-                  _CalcCard('Tonelagem', _tonnage == null ? '—' : '${_tonnage!.toStringAsFixed(2)} t', 'calculada'),
+                  _CalcCard('Profundidade considerada', '${calculation.effectiveHoleDepthM.toStringAsFixed(2)} m', depthMode == 'bench_plus_subdrilling' ? 'calculada' : 'informada'),
+                  _CalcCard('Tampão', '${calculation.stemmingHeightM.toStringAsFixed(2)} m', 'informado'),
+                  _CalcCard('Comprimento carregado', '${calculation.chargedLengthM.toStringAsFixed(2)} m', 'calculado'),
+                  _CalcCard('Diâmetro usado', '${calculation.calculationDiameterMm.toStringAsFixed(1)} mm', calculation.diameterSource == 'cartridge' ? 'cartucho' : 'furo'),
+                  _CalcCard('Kg por metro', '${calculation.kgPerMeter.toStringAsFixed(2)} kg/m', 'calculado'),
+                  _CalcCard('Carga por furo', '${calculation.chargePerHoleKg.toStringAsFixed(2)} kg', 'calculada'),
+                  _CalcCard('Volume por furo', '${calculation.volumePerHoleM3.toStringAsFixed(2)} m³', 'calculado'),
+                  _CalcCard('Razão de carga', '${calculation.powderFactorKgM3.toStringAsFixed(3)} kg/m³', 'calculada'),
+                  _CalcCard('Volume total', '${calculation.volumeM3.toStringAsFixed(2)} m³', 'calculado'),
+                  _CalcCard('Perfuração total', '${calculation.drillingM.toStringAsFixed(2)} m', 'calculada'),
+                  _CalcCard('Carga total', '${calculation.estimatedChargeKg.toStringAsFixed(2)} kg', 'calculada'),
+                  _CalcCard('Tonelagem', calculation.tonnageT == null ? '—' : '${calculation.tonnageT!.toStringAsFixed(2)} t', 'calculada'),
                 ]),
               ]),
               _planSection(users.isNotEmpty ? '09' : '08', 'Tabelas técnicas de referência', 'Consulta visual; itens pendentes não alimentam os cálculos', [
@@ -530,7 +638,7 @@ class _CatalogInfo extends StatelessWidget {
 class _ValidationChip extends StatelessWidget {
   final String status; const _ValidationChip(this.status);
   @override Widget build(BuildContext context) {
-    final validated = status == 'validated'; final rejected = status == 'rejected';
+    final validated = status == 'validated' || status == 'validated_document'; final rejected = status == 'rejected';
     final color = validated ? MinaTheme.green : rejected ? MinaTheme.red : MinaTheme.yellow2;
     final text = validated ? 'Validado' : rejected ? 'Rejeitado' : 'Pendente';
     return Container(padding:const EdgeInsets.symmetric(horizontal:8,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha:.10),borderRadius:BorderRadius.circular(7),border:Border.all(color:color.withValues(alpha:.55))),child:Text(text,style:TextStyle(color:color,fontSize:10,fontWeight:FontWeight.w800)));
@@ -542,7 +650,7 @@ class _CalcCard extends StatelessWidget {
   @override Widget build(BuildContext context) => Container(width:150,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:MinaTheme.panel2,borderRadius:BorderRadius.circular(9),border:Border.all(color:MinaTheme.border)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:const TextStyle(color:MinaTheme.muted,fontSize:9)),const SizedBox(height:4),Text(value,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:13)),const SizedBox(height:3),Text(kind,style:TextStyle(color:kind=='informada'?MinaTheme.blue:MinaTheme.yellow,fontSize:9))]));
 }
 
-String _validationText(Object? value) => _s(value) == 'validated' ? 'Validado' : _s(value) == 'rejected' ? 'Rejeitado' : 'Pendente';
+String _validationText(Object? value) => ['validated','validated_document'].contains(_s(value)) ? 'Validado' : _s(value) == 'rejected' ? 'Rejeitado' : 'Pendente';
 String _fmtRange(Object? a, Object? b) { final x = _n(a), y = _n(b); if (x == 0 && y == 0) return '—'; if (y == 0 || (x-y).abs() < .0001) return x.toStringAsFixed(2); return '${x.toStringAsFixed(2)}–${y.toStringAsFixed(2)}'; }
 
 class _Calc extends StatelessWidget {
@@ -631,7 +739,6 @@ class ReportParityDetail extends StatelessWidget {
     final apff=snapshotApff.isNotEmpty?snapshotApff:_maps(op['preliminary_analysis']);
     final snapshotChecklist=_maps(snapshot['checklist']);
     final checklist=snapshotChecklist.isNotEmpty?snapshotChecklist:_maps(op['checklist_answers']);
-    final trace=_map(snapshot['calculation_traceability']); final snapshotFormulas=_maps(trace['formula_snapshot']); final formulas=snapshotFormulas.isNotEmpty?snapshotFormulas:_maps(summary['formula_snapshot']);
     final evidence=_map(snapshot['evidence']); final snapshotLocation=_map(evidence['location']); final location=snapshotLocation.isNotEmpty?snapshotLocation:_map(op['location']);
     final condition=_s(operationSnap['condition']).isNotEmpty?_s(operationSnap['condition']):_s(op['condition']);
     final responsible=_s(operationSnap['responsible']).isNotEmpty?_s(operationSnap['responsible']):_s(op['responsible']);
@@ -649,7 +756,19 @@ class ReportParityDetail extends StatelessWidget {
           _detail('Plano', plan['name']), _detail('Código / revisão', '${_s(plan['code'])} / ${_s(plan['revision'])}'), _detail('Cliente / mina / obra', plan['client_ref'] ?? params['client_ref']), _detail('Frente / local', site), _detail('Equipe', operationSnap['team'] ?? op['team']), _detail('Responsável', responsible), _detail('Data', date), _detail('Condição', condition),
         ])),
         _section('Planejamento técnico', [
-          _detail('Furos planejados', planned['holes'] ?? params['holes']), _detail('Volume', _value(planned['volume_m3'] ?? summary['volume_m3'],' m³')), _detail('Tonelagem', _value(planned['tonnage_t'] ?? summary['tonnage_t'],' t')), _detail('Perfuração', _value(planned['drilling_m'] ?? summary['drilling_m'],' m')), _detail('Carga estimada', _value(planned['estimated_charge_kg'] ?? summary['estimated_charge_kg'],' kg')),
+          _detail('Furos planejados', planned['holes'] ?? params['holes']),
+          _detail('Profundidade considerada', _value(summary['effective_hole_depth_m'],' m')),
+          _detail('Tampão', _value(summary['stemming_height_m'] ?? params['stemming_height_m'],' m')),
+          _detail('Comprimento carregado', _value(summary['charged_length_m'] ?? params['charged_length_m'],' m')),
+          _detail('Diâmetro usado', _value(summary['calculation_diameter_mm'] ?? params['calculation_diameter_mm'],' mm')),
+          _detail('Kg por metro', _value(summary['kg_per_meter'] ?? params['kg_per_meter'],' kg/m')),
+          _detail('Carga por furo', _value(summary['charge_per_hole_kg'] ?? params['charge_per_hole_kg'],' kg')),
+          _detail('Volume por furo', _value(summary['volume_per_hole_m3'],' m³')),
+          _detail('Razão de carga', _value(summary['powder_factor_kg_m3'] ?? params['powder_factor'],' kg/m³')),
+          _detail('Volume total', _value(planned['volume_m3'] ?? summary['volume_m3'],' m³')),
+          _detail('Tonelagem', _value(planned['tonnage_t'] ?? summary['tonnage_t'],' t')),
+          _detail('Perfuração', _value(planned['drilling_m'] ?? summary['drilling_m'],' m')),
+          _detail('Carga estimada', _value(planned['estimated_charge_kg'] ?? summary['estimated_charge_kg'],' kg')),
         ]),
         _section('Executado', [
           _detail('Furos executados', executed['holes'] ?? execution['holes_executed']), _detail('Perfuração executada', _value(executed['drilling_m'] ?? execution['drilling_m_executed'],' m')), _detail('Explosivos', _value(executed['explosive_total_kg'],' kg')), _detail('Boosters', _value(executed['booster_total_qty'],' un')), _detail('Densidade da rocha', _value(executed['rock_density_t_m3'] ?? execution['rock_density_t_m3'],' t/m³')),
@@ -664,10 +783,6 @@ class ReportParityDetail extends StatelessWidget {
         _section('Checklist operacional', checklist.isEmpty?[const Text('Checklist não disponível.',style:TextStyle(color:MinaTheme.muted))]:checklist.map((a)=>_detail(_s(a['label']), _answer(a['status']))).toList()),
         _section('GPS e observações', [
           _detail('Localização', location['label']), _detail('Coordenadas', location['lat']==null?'—':'${_s(location['lat'])}, ${_s(location['lng'])}'), _detail('Precisão', location['accuracy']==null?'—':_value(location['accuracy'],' m')), _detail('Observações', operationSnap['observations'] ?? op['observations'])
-        ]),
-        _section('Rastreabilidade dos cálculos', [
-          _detail('Motor / versão', trace['calculation_version'] ?? op['calculation_version'] ?? summary['calculation_version']), _detail('Política', trace['formula_policy'] ?? summary['formula_policy']),
-          ...formulas.map((f)=>_detail('${_s(f['name']).isEmpty?_s(f['key']):_s(f['name'])} · v${_s(f['version'])}', '${_s(f['expression'])}${_s(f['unit']).isNotEmpty?' · ${_s(f['unit'])}':''}')),
         ]),
         MCPanel(child: Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: MinaTheme.yellow, borderRadius: BorderRadius.circular(10)), child: const Text('VOLTAR PRA CASA É O MELHOR DESMONTE — Na dúvida, não faça.', textAlign: TextAlign.center, style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)))),
       ]),
@@ -740,14 +855,43 @@ class _EntityEditorSheetState extends State<EntityEditorSheet>{
   ]))));
   List<Widget> _fields(){Widget f(String key,String label,{TextInputType? keyboard,int maxLines=1})=>Padding(padding:const EdgeInsets.only(bottom:12),child:TextFormField(controller:c[key],keyboardType:keyboard,maxLines:maxLines,decoration:InputDecoration(labelText:label),validator:(v)=>(key=='name'&&_s(v).trim().isEmpty)?'Obrigatório':null));
     if(widget.type=='companies')return[f('name','Nome da empresa *'),f('document','Documento')];
-    if(widget.type=='teams')return[f('name','Nome da equipe *'),f('lead','Responsável / líder'),f('status','Situação')];
+    if(widget.type=='teams')return[
+      f('name','Nome da equipe *'),
+      f('lead','Responsável / líder'),
+      FutureBuilder<List<Map<String,dynamic>>>(
+        future: widget.controller.operationalOptions(group: 'team_status', preserveValues: [c['status']!.text]),
+        builder: (context, snap) {
+          final rows = snap.data ?? const <Map<String,dynamic>>[];
+          final current = c['status']!.text.trim().isEmpty ? 'Disponível' : c['status']!.text.trim();
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: DropdownButtonFormField<String>(
+              isExpanded: true,
+              menuMaxHeight: 360,
+              value: rows.any((row) => _s(row['value']) == current) ? current : null,
+              decoration: const InputDecoration(labelText: 'Situação'),
+              items: rows.map((row) => DropdownMenuItem(value: _s(row['value']), child: Text(_optionText(row)))).toList(),
+              onChanged: (value) => setState(() => c['status']!.text = value ?? current),
+            ),
+          );
+        },
+      ),
+    ];
     if(widget.type=='checklists')return[f('name','Nome do checklist *'),f('items','Itens — um por linha',maxLines:8)];
     return[
       f('name','Nome *'),f('username','Usuário *'),f('email','E-mail *',keyboard:TextInputType.emailAddress),
-      Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(value:role,decoration:const InputDecoration(labelText:'Perfil'),items:const ['admin','programador','gestor','campo','cliente'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>role=v??'campo'))),
-      Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(value:scope,decoration:const InputDecoration(labelText:'Escopo'),items:const ['all','company','team'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>scope=v??'company'))),
-      FutureBuilder<List<Map<String,dynamic>>>(future:widget.controller.companies(),builder:(context,snap)=>Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(value:companyId,decoration:const InputDecoration(labelText:'Empresa'),items:(snap.data??const []).map((x)=>DropdownMenuItem(value:_s(x['id']),child:Text(_s(x['name'])))).toList(),onChanged:(v)=>setState(()=>companyId=v??companyId)))),
-      FutureBuilder<List<Map<String,dynamic>>>(future:widget.controller.teams(),builder:(context,snap)=>Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(value:teamId.isEmpty?null:teamId,decoration:const InputDecoration(labelText:'Equipe'),items:(snap.data??const []).map((x)=>DropdownMenuItem(value:_s(x['id']),child:Text(_s(x['name'])))).toList(),onChanged:(v)=>setState(()=>teamId=v??'')))),
+      Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,value:role,decoration:const InputDecoration(labelText:'Perfil'),items:const ['admin','programador','gestor','campo','cliente'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>role=v??'campo'))),
+      Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,value:scope,decoration:const InputDecoration(labelText:'Escopo'),items:const ['all','company','team'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setState(()=>scope=v??'company'))),
+      FutureBuilder<List<Map<String,dynamic>>>(future:widget.controller.companies(),builder:(context,snap)=>Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,value:companyId,decoration:const InputDecoration(labelText:'Empresa'),items:(snap.data??const []).map((x)=>DropdownMenuItem(value:_s(x['id']),child:Text(_s(x['name'])))).toList(),onChanged:(v)=>setState(()=>companyId=v??companyId)))),
+      FutureBuilder<List<Map<String,dynamic>>>(future:widget.controller.teams(),builder:(context,snap)=>Padding(padding:const EdgeInsets.only(bottom:12),child:DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,value:teamId.isEmpty?null:teamId,decoration:const InputDecoration(labelText:'Equipe'),items:(snap.data??const []).map((x)=>DropdownMenuItem(value:_s(x['id']),child:Text(_s(x['name'])))).toList(),onChanged:(v)=>setState(()=>teamId=v??'')))),
     ];
   }
   Future<void> _save()async{if(!(form.currentState?.validate()??false))return;setState(()=>busy=true);try{final values=<String,dynamic>{'name':c['name']!.text.trim(),'active':active};if(widget.type=='companies'){values['document']=c['document']!.text.trim();await widget.controller.saveCompany(values,existing:widget.existing);}else if(widget.type=='teams'){values.addAll({'lead':c['lead']!.text.trim(),'status':c['status']!.text.trim().isEmpty?'Disponível':c['status']!.text.trim(),'company_id':widget.existing?['company_id']??widget.controller.currentUser?['company_id']??'company_default'});await widget.controller.saveTeam(values,existing:widget.existing);}else if(widget.type=='checklists'){values['items']=c['items']!.text.split('\n').map((x)=>x.trim()).where((x)=>x.isNotEmpty).toList();await widget.controller.saveChecklist(values,existing:widget.existing);}else{values.addAll({'username':c['username']!.text.trim().toLowerCase(),'email':c['email']!.text.trim().toLowerCase(),'role':role,'access_scope':scope,'company_id':companyId,'team_id':teamId});await widget.controller.saveUser(values,existing:widget.existing);}if(mounted){mcToast(context,widget.controller.connectivity.hasNetwork?'Cadastro salvo.':'Cadastro salvo offline.');Navigator.pop(context);}}catch(e){if(mounted)mcToast(context,e.toString(),error:true);}finally{if(mounted)setState(()=>busy=false);}}

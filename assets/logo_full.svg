@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 104" role="img" aria-label="MinaCalc Pro">
+ <defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#ffd32a"/><stop offset="1" stop-color="#eda900"/></linearGradient></defs>
+ <g fill="none" stroke="url(#g)" stroke-width="5" stroke-linejoin="round">
+  <path fill="url(#g)" d="M19 42h72v7H19zM29 38c1-19 12-30 26-31v20h4V7c15 2 25 13 27 31z" stroke="none"/>
+  <path d="m17 71 22-18 14 13 16-18 25 23-38 25zM17 71l39 25 38-25M29 63l27 14 27-14M39 53l17 14 13-19"/>
+ </g>
+ <text x="112" y="70" fill="#f7f8fa" font-family="Arial,Helvetica,sans-serif" font-size="41" font-weight="800">MinaCalc <tspan fill="url(#g)">Pro</tspan></text>
+</svg>

@@ -9,6 +9,7 @@ import '../data/api_client.dart';
 import '../data/local_db.dart';
 import '../data/session_store.dart';
 import '../services/connectivity_service.dart';
+import '../services/blast_calculation.dart';
 import '../services/formula_engine.dart';
 import '../services/location_service.dart';
 import '../services/media_service.dart';
@@ -211,6 +212,27 @@ class AppController extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> alerts() => db.all('alerts');
   Future<List<Map<String, dynamic>>> localOperations() => db.all('local_operations');
   Future<List<Map<String, dynamic>>> mapPoints() => db.all('map_points');
+  Future<List<Map<String, dynamic>>> operationalOptions({
+    String? group,
+    bool includeInactive = false,
+    Iterable<String> preserveValues = const <String>[],
+  }) async {
+    final preserved = preserveValues.map((e) => e.toString()).where((e) => e.isNotEmpty).toSet();
+    final rows = await db.all('operational_options');
+    final filtered = rows.where((row) {
+      if (group != null && (row['group'] ?? '').toString() != group) return false;
+      final value = (row['value'] ?? '').toString();
+      return includeInactive || row['active'] != false || preserved.contains(value);
+    }).map((row) => Map<String, dynamic>.from(row)).toList();
+    filtered.sort((a, b) {
+      final orderA = (a['sort_order'] as num?)?.toInt() ?? 1000;
+      final orderB = (b['sort_order'] as num?)?.toInt() ?? 1000;
+      final byOrder = orderA.compareTo(orderB);
+      if (byOrder != 0) return byOrder;
+      return (a['label'] ?? a['value'] ?? '').toString().compareTo((b['label'] ?? b['value'] ?? '').toString());
+    });
+    return filtered;
+  }
   Future<Map<String, dynamic>?> settings() => db.one('settings', 'main');
 
   Future<Map<String, dynamic>?> draftForPlan(String planId) => db.one('drafts', planId);
@@ -268,6 +290,7 @@ class AppController extends ChangeNotifier {
       'bench_height': parseNum(p['bench_height']),
       'hole_depth': parseNum(p['hole_depth']),
       'subdrilling': parseNum(p['subdrilling']),
+      'stemming_height_m': parseNum(p['stemming_height_m']),
       'depth_mode': p['depth_mode'] ?? 'manual',
       'inclination_deg': parseNum(p['inclination_deg']),
       'hole_diameter_mm': parseNum(p['hole_diameter_mm']),
@@ -280,66 +303,40 @@ class AppController extends ChangeNotifier {
       'explosive_category': p['explosive_category'] ?? 'other',
       'explosive_variant': p['explosive_variant'] ?? '',
       'explosive_density_source': p['explosive_density_source'] ?? 'manual',
+      'explosive_diameter_mm': parseNum(p['explosive_diameter_mm']),
       'booster_id': p['booster_id'] ?? '',
       'booster': p['booster'] ?? '',
       'booster_qty_planned': parseNum(p['booster_qty_planned']).round(),
       'explosive_density': parseNum(p['explosive_density']),
-      'kg_per_meter': parseNum(p['kg_per_meter']),
-      'charge_per_hole_kg': parseNum(p['charge_per_hole_kg']),
-      'powder_factor': parseNum(p['powder_factor']),
       'people_radius': parseNum(p['people_radius']),
       'equipment_radius': parseNum(p['equipment_radius']),
       'center_lat': p['center_lat'] ?? '',
       'center_lng': p['center_lng'] ?? '',
     };
-    double round2(double value) => (value * 100).roundToDouble() / 100;
-    final bench = parseNum(p['bench_height']);
-    final subdrilling = parseNum(p['subdrilling']);
-    final enteredDepth = parseNum(p['hole_depth']);
-    final depthMode = (p['depth_mode'] ?? 'manual').toString();
-    final effectiveDepth = depthMode == 'bench_plus_subdrilling' ? bench + subdrilling : enteredDepth;
-    final holes = parseNum(p['holes']).round();
-    final burden = parseNum(p['burden']);
-    final spacing = parseNum(p['spacing']);
-    final powderFactor = parseNum(p['powder_factor']);
     final rockDensity = parseNum(p['rock_density_t_m3']);
     final formulaRows = await formulas();
     final formulaEngine = FormulaEngine(formulaRows);
-    final context = <String, double>{
-      'bench_height': bench,
-      'subdrilling': subdrilling,
-      'effective_hole_depth': effectiveDepth,
-      'holes': holes.toDouble(),
-      'burden': burden,
-      'spacing': spacing,
-      'powder_factor': powderFactor,
-      'rock_density': rockDensity,
-    };
-    final fallbackVolume = round2(burden * spacing * bench * holes);
-    final volume = formulaEngine.evaluate('volume_m3', context, fallback: fallbackVolume) ?? fallbackVolume;
-    context['volume_m3'] = volume;
-    final fallbackDrilling = round2(effectiveDepth * holes);
-    final drilling = formulaEngine.evaluate('drilling_m', context, fallback: fallbackDrilling) ?? fallbackDrilling;
-    context['drilling_m'] = drilling;
-    final fallbackEstimated = round2(volume * powderFactor);
-    final estimated = formulaEngine.evaluate('estimated_charge_kg', context, fallback: fallbackEstimated) ?? fallbackEstimated;
-    context['estimated_charge_kg'] = estimated;
-    final fallbackPerHole = holes > 0 ? round2(estimated / holes) : null;
-    final estimatedPerHole = holes > 0
-        ? formulaEngine.evaluate('estimated_charge_per_hole_kg', context, fallback: fallbackPerHole)
-        : null;
-    if (estimatedPerHole != null) context['estimated_charge_per_hole_kg'] = estimatedPerHole;
-    final fallbackTonnage = rockDensity > 0 ? round2(volume * rockDensity) : null;
-    final tonnage = rockDensity > 0
-        ? formulaEngine.evaluate('tonnage_t', context, fallback: fallbackTonnage)
-        : null;
-    final formulaSnapshot = formulaEngine.snapshotFor(const [
-      'volume_m3',
-      'drilling_m',
-      'estimated_charge_kg',
-      'estimated_charge_per_hole_kg',
-      'tonnage_t',
-    ]);
+    final calculation = BlastCalculation.calculate(
+      formulaEngine: formulaEngine,
+      explosiveCategory: (p['explosive_category'] ?? 'other').toString(),
+      holeDiameterMm: parseNum(p['hole_diameter_mm']),
+      explosiveDiameterMm: parseNum(p['explosive_diameter_mm']),
+      explosiveDensityGcm3: parseNum(p['explosive_density']),
+      benchHeightM: parseNum(p['bench_height']),
+      holeDepthM: parseNum(p['hole_depth']),
+      subdrillingM: parseNum(p['subdrilling']),
+      depthMode: (p['depth_mode'] ?? 'manual').toString(),
+      stemmingHeightM: parseNum(p['stemming_height_m']),
+      holes: parseNum(p['holes']).round(),
+      burdenM: parseNum(p['burden']),
+      spacingM: parseNum(p['spacing']),
+      rockDensityTm3: rockDensity,
+    );
+    params['calculation_diameter_mm'] = calculation.calculationDiameterMm;
+    params['charged_length_m'] = calculation.chargedLengthM;
+    params['kg_per_meter'] = calculation.kgPerMeter;
+    params['charge_per_hole_kg'] = calculation.chargePerHoleKg;
+    params['powder_factor'] = calculation.powderFactorKgM3;
     final participantIds = (p['participant_ids'] as List? ?? const []).map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
     final availableUsers = await users();
     final participantRows = availableUsers.where((u) => participantIds.contains((u['id'] ?? '').toString())).map((u) => {'id': u['id'], 'name': u['name'], 'role': u['role'], 'team': u['team']}).toList();
@@ -358,19 +355,7 @@ class AppController extends ChangeNotifier {
       'parameters': params,
       'participant_ids': participantIds,
       'participants': participantRows,
-      'summary': {
-        'calculation_version': 'formula-engine-2.1',
-        'formula_policy': 'published_only',
-        'formula_snapshot': formulaSnapshot,
-        'effective_hole_depth_m': round2(effectiveDepth),
-        'volume_m3': volume,
-        'drilling_m': drilling,
-        'estimated_charge_kg': estimated,
-        'estimated_charge_per_hole_kg': estimatedPerHole,
-        'powder_factor_kg_m3': powderFactor,
-        'rock_density_t_m3': rockDensity > 0 ? rockDensity : null,
-        'tonnage_t': tonnage,
-      },
+      'summary': calculation.toSummary(rockDensity: rockDensity),
       'updated_at': DateTime.now().toIso8601String(),
       'created_at': existing?['created_at'] ?? DateTime.now().toIso8601String(),
       '_local_pending': true,
@@ -543,15 +528,21 @@ class AppController extends ChangeNotifier {
         payload: {'client_uuid': clientUuid, 'client_upload_id': uploadId, 'path': photoPaths[i]},
       );
     }
+    final localSnapshot = Map<String, dynamic>.from(data);
+    localSnapshot['photo_count'] = photoPaths.length;
+    localSnapshot.remove('photo_paths');
+    localSnapshot.remove('signature_path');
     await db.putLocal('local_operations', clientUuid, {
       'id': clientUuid,
       'client_uuid': clientUuid,
       'plan_id': data['plan_id'],
       'site': data['site'],
       'team': data['team'],
+      'responsible': currentUser?['name'] ?? '',
       'status': 'Aguardando sincronização',
       'created_at': DateTime.now().toIso8601String(),
       'sync': 'Pendente',
+      'snapshot': localSnapshot,
     });
     await db.deleteLocal('drafts', (data['plan_id'] ?? '').toString());
     await sync.syncNow();

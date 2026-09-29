@@ -1,0 +1,11 @@
+MinaCalc Pro 2.15.0 — Etapa 5 concluída
+Fluxo Operacional Completo App/Offline
+Data: 2026-09-29
+
+IMPLEMENTADO
+- Responsável único e participantes múltiplos preservados no payload.
+- Revisão final exibe planejado x executado e referências do novo motor de cálculo.
+- Volume de referência executado, carga de referência, carga real/furo e razão real.
+- Explosivos, boosters, APFF, checklist, fotos, GPS, observações e assinatura integrados.
+- Operação concluída offline mantém snapshot local completo até a sincronização.
+- Versão consolidada: Flutter/Android 2.15.0+2150.

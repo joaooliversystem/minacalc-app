@@ -1,0 +1,29 @@
+MINACALC PRO 2.15 — ETAPA 3 CONCLUÍDA
+App + cadastros dinâmicos/offline
+Data: 2026-09-29
+
+IMPLEMENTADO
+- operational_options sincronizado e consumido pelo app a partir do SQLite local.
+- Status de plano, status de equipe, modo de profundidade, categorias de explosivo,
+  origem da densidade, condição da operação, tipos de ponto no mapa e respostas
+  de checklist/APFF passam a consumir opções administradas no Web.
+- Presets dinâmicos de profundidade, diâmetro e tampão são exibidos no app quando cadastrados.
+- Tipo de desmonte passa a usar opções dinâmicas quando cadastradas, mantendo entrada livre como fallback.
+- Checklists e APFF continuam sincronizados como modelos dinâmicos.
+- Opções arquivadas deixam de aparecer em novos preenchimentos, mas valores já usados são preservados.
+- Rascunhos preservam snapshot de checklist, APFF, participantes, explosivos e boosters.
+- Se cadastro for renomeado/arquivado depois do início do rascunho, o snapshot do rascunho prevalece no registro.
+- Participantes removidos/inativos já selecionados permanecem visíveis como histórico.
+- Explosivos/boosters arquivados já utilizados permanecem no rascunho e no payload final.
+- Snapshot das opções de condição/respostas é salvo junto do rascunho/operação.
+- Fila de sincronização existente continua enviando alterações ao retornar conexão.
+
+VALIDAÇÃO
+- Estrutura Dart: delimitadores/strings verificados estaticamente.
+- Web: PHP lint OK, JavaScript node --check OK, 27 JSON válidos.
+- Build Flutter não executado localmente por ausência do SDK no ambiente.
+
+PRÓXIMA ETAPA
+Etapa 4 — Motor de cálculos automático e regra bombeado x encartuchado, incluindo
+kg/m, comprimento carregado, kg/furo, volume/furo, razão, carga total e volume total,
+com paridade Web/App/offline e caso de regressão PF-2026-0002.

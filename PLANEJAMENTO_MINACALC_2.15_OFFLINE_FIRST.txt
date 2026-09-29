@@ -1,0 +1,134 @@
+MINACALC PRO - PLANEJAMENTO DA PROXIMA EVOLUCAO
+Base atual: 2.14.2
+Objetivo: Offline First + Cadastros Dinamicos + Snapshot Historico Imutavel
+
+PRINCIPIOS OBRIGATORIOS
+1. O fluxo offline deve funcionar como o online depois do primeiro acesso/sincronizacao.
+2. Internet deve ser necessaria principalmente para autenticar inicialmente, atualizar dados e sincronizar alteracoes.
+3. Checkbox, select, radio e listas operacionais devem vir de cadastros configuraveis no Web sempre que fizer sentido.
+4. Programador e Admin Master podem administrar os cadastros permitidos.
+5. Alterar, arquivar ou remover uma opcao nao pode modificar registros historicos, parciais ou concluidos.
+6. Operacoes concluidas devem preservar snapshot de formulas, opcoes, nomes, parametros e versoes utilizadas.
+7. Nenhum dado preenchido em campo pode ser descartado silenciosamente por conflito de sincronizacao.
+
+ETAPA 1 - MODELO UNICO DE CADASTROS DINAMICOS (WEB/API)
+- Criar estrutura unica para grupos de opcoes e itens configuraveis.
+- Permitir nome, codigo, descricao, ordem, ativo/inativo, unidade, metadados e versao.
+- Aplicar inicialmente a: explosivos, boosters, tipos de rocha, densidades, profundidades, itens de checklist/APFF, motivos/status e demais selects/checkboxes operacionais.
+- Usar arquivamento logico (soft delete/tombstone), nunca apagar dados historicos utilizados.
+- Registrar quem criou/editou/arquivou e quando.
+- Permissoes: Programador e Admin Master.
+Criterio de aceite: todas as opcoes definidas como dinamicas podem ser gerenciadas sem alterar codigo.
+Estimativa: 4-6h.
+
+ETAPA 2 - PAINEL ADMIN MASTER / PROGRAMADOR
+- Criar area central "Cadastros e Opcoes do App".
+- Criar, editar, ativar, desativar, ordenar e arquivar itens.
+- Mostrar onde cada opcao e usada.
+- Avisar antes de arquivar item usado em operacoes/planos.
+- Pre-visualizar como o select/checkbox aparecera no app.
+- Manter Motor de Calculos separado e protegido por permissao tecnica.
+Criterio de aceite: administracao completa pelo Web, sem afetar historico.
+Estimativa: 4-6h.
+
+ETAPA 3 - CACHE LOCAL E SINCRONIZACAO DE CADASTROS NO APP
+- Salvar localmente os catalogos/opcoes e suas versoes.
+- Sincronizacao inicial completa apos login online.
+- Depois, sincronizacao incremental somente do que mudou.
+- App deve abrir e usar selects/checkboxes sem internet.
+- Nova opcao criada no Web aparece no app apos sincronizar.
+- Opcao arquivada deixa de aparecer em novos registros apos sincronizar, mas permanece em registros antigos.
+- Se Programador/Admin Master editar cadastro pelo app onde permitido, enfileirar alteracao para sincronizar depois.
+Criterio de aceite: app mantem exatamente as opcoes da ultima sincronizacao e funciona sem conexao.
+Estimativa: 6-8h.
+
+ETAPA 4 - PARIDADE OFFLINE COMPLETA DO FLUXO OPERACIONAL
+Garantir offline para:
+- planos disponiveis/sincronizados;
+- equipe e participantes;
+- parametros do plano;
+- explosivos e boosters;
+- APFF e checklist;
+- planejado x executado;
+- furos e perfuracao;
+- formulas publicadas em cache;
+- calculos;
+- fotos/evidencias;
+- GPS;
+- observacoes;
+- assinatura;
+- mapa com regiao previamente armazenada quando necessario;
+- conclusao da operacao;
+- relatorio/visualizacao local possivel com os dados disponiveis.
+Criterio de aceite: apos sincronizacao previa, o operador executa do inicio ao fim sem internet e sincroniza depois.
+Estimativa: 8-12h.
+
+ETAPA 5 - SNAPSHOT HISTORICO E IMUTABILIDADE
+- Cada plano/operacao salva ID + texto exibido + parametros + versao do cadastro usado.
+- Snapshot de formulas, explosivos, booster, rocha, checklist/APFF, participantes e demais referencias relevantes.
+- Rascunho parcial preserva as opcoes usadas mesmo se o servidor mudar depois.
+- Trabalho concluido nao e recalculado nem reescrito por alteracoes futuras.
+- Correcao posterior de trabalho concluido deve gerar revisao/adendo, nao sobrescrever o original.
+- Relatorio deve apontar para o snapshot do registro, nao para o cadastro atual.
+Criterio de aceite: alterar/arquivar item hoje nao muda nenhuma operacao de ontem.
+Estimativa: 6-8h.
+
+ETAPA 6 - MOTOR DE CONFLITOS E FILA DE SINCRONIZACAO
+Regras:
+- Cadastros atuais: servidor controla a versao oficial; alteracoes autorizadas offline usam base_version.
+- Rascunhos operacionais: nunca descartar copia local; conflito gera conciliacao ou copia preservada.
+- Operacoes concluidas: imutaveis; servidor recebe evento/snapshot, sem reescrever historico.
+- Exclusoes: usar tombstones/arquivamento e propagar na sincronizacao.
+- Fotos e arquivos: fila separada, retentativa e idempotencia.
+- Sincronizacao deve poder ser interrompida e continuar depois sem duplicar dados.
+- Exibir ao usuario: pendente, sincronizando, sincronizado, conflito ou erro.
+Criterio de aceite: online -> offline -> online sem perda e sem duplicidade.
+Estimativa: 6-8h.
+
+ETAPA 7 - AJUSTES DA REVISAO DO CLIENTE DENTRO DA NOVA ESTRUTURA
+- Remover marcas comerciais e usar nomenclaturas genericas.
+- Tipos de explosivos dinamicos.
+- Densidade/diametro/profundidade/tampao parametrizados.
+- Equipe multipla + um responsavel principal.
+- Melhorias de checkbox/select no Web e App.
+- Melhor contraste e usabilidade no celular.
+- Planejado x executado consolidado.
+- Relatorio do cliente sem rastreabilidade tecnica desnecessaria, mantendo-a internamente.
+- Nome MinaCalc Pro completo no app.
+- Revisar status do plano.
+Criterio de aceite: checklist da revisao do cliente validado item a item.
+Estimativa: 4-6h, fora homologacao das formulas.
+
+ETAPA 8 - TESTES E HOMOLOGACAO FINAL
+Cenarios obrigatorios:
+- primeiro login online;
+- novo login com dados em cache;
+- fluxo completo online;
+- fluxo completo offline;
+- iniciar online e finalizar offline;
+- iniciar offline e sincronizar online;
+- opcao editada no Web enquanto app esta offline;
+- opcao arquivada usada em rascunho parcial;
+- opcao arquivada usada em operacao concluida;
+- formula alterada depois de plano concluido;
+- conflito do mesmo rascunho em dois dispositivos;
+- fila de fotos interrompida;
+- sincronizacao repetida/idempotencia;
+- permissoes Programador/Admin Master/Admin/Equipe;
+- APK release e AAB.
+Criterio de aceite: zero perda de dados, zero alteracao retroativa e paridade funcional offline/online.
+Estimativa: 4-6h + validacao do cliente.
+
+ORDEM RECOMENDADA
+1 -> 2 -> 3 -> 5 -> 6 -> 4 -> 7 -> 8.
+A Etapa 5 vem antes do fechamento do fluxo offline para garantir que toda a sincronizacao ja nasca preservando historico.
+
+ESTIMATIVA TOTAL
+Aproximadamente 42-60 horas de desenvolvimento/testes, dependendo da quantidade final de campos dinamicos e da homologacao das formulas.
+Em blocos de trabalho: aproximadamente 6-9 dias uteis.
+
+REGRA DE SEGURANCA PARA FORMULAS
+Nenhuma formula tecnica divergente sera publicada automaticamente. Formula nova/editada continua com versao, teste e publicacao controlada. Operacoes antigas mantem o snapshot da formula usada.
+
+MARCO DE BASE
+Antes de iniciar esta evolucao, preservar os pacotes atuais Web 2.14.2 e App 2.14.2 como baseline de rollback.

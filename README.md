@@ -1,16 +1,19 @@
-# MinaCalc Pro 2.14.2 — Flutter / Android
+# MinaCalc Pro 2.15.0 — Flutter / Android
 
 Aplicativo nativo para operação de campo com primeiro login online e continuidade offline após sincronização inicial.
 
 ## Versão
-- Flutter app: `2.14.2+2142`
-- API esperada: MinaCalc Pro Web/API `2.14.2`
+- Flutter app: `2.15.0+2150`
+- API esperada: MinaCalc Pro Web/API `2.15.0`
 - Application ID: `br.com.minacalc.pro`
 
 ## Recursos consolidados
 - Login e sessão segura.
 - Snapshot/sincronização com a API.
 - Motor de fórmulas publicado, cacheado para uso offline.
+- Cadastros dinâmicos sincronizados e mantidos localmente para operação offline.
+- Regra automática bombeado x encartuchado com cálculo de kg/m, kg/furo, volume/furo, razão e carga total.
+- Revisão operacional com planejado x executado, carga real/furo e razão real.
 - Plano de Fogo e resultados com rastreabilidade da versão das fórmulas.
 - Operação de campo, APFF, checklist, equipe, furos/perfuração, explosivos e boosters.
 - Fotos, GPS, assinatura, observações e rascunhos offline.

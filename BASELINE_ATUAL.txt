@@ -1,0 +1,7 @@
+MinaCalc Pro App - Base atual antes da evolucao Offline First
+Versao: 2.14.2
+Repositorio: joaooliversystem/minacalc-app
+Branch: main
+Commit validado: 9eecb1d509c497f3d23154766f0b7bf5e8c1b1eb
+GitHub Actions: Build Android APK #11 - SUCCESS
+Data do marco: 2026-09-29

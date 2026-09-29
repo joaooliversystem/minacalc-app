@@ -140,7 +140,10 @@ class _MapScreenState extends State<MapScreen> {
     final label = TextEditingController();
     final notes = TextEditingController();
     final availablePlans = (await widget.controller.plans()).where((p) => (p['status'] ?? '') == 'Ativo').toList();
-    String type = 'operation';
+    final typeOptions = await widget.controller.operationalOptions(group: 'map_point_type');
+    String type = typeOptions.any((row) => '${row['value']}' == 'operation')
+        ? 'operation'
+        : (typeOptions.isNotEmpty ? '${typeOptions.first['value']}' : 'other');
     String planId = '';
     final s = AppStrings(widget.controller.language);
     final saved = await showModalBottomSheet<bool>(
@@ -152,20 +155,20 @@ class _MapScreenState extends State<MapScreen> {
           Text(s.t('markerTitle'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
             value: type,
             decoration: InputDecoration(labelText: s.t('type')),
-            items: [
-              DropdownMenuItem(value: 'operation', child: Text(s.t('operation'))),
-              DropdownMenuItem(value: 'equipment', child: Text(s.t('equipment'))),
-              DropdownMenuItem(value: 'technical_item', child: Text(s.t('technicalItem'))),
-              DropdownMenuItem(value: 'explosive', child: Text(s.t('controlledItem'))),
-              DropdownMenuItem(value: 'other', child: Text(s.t('other'))),
-            ],
+            items: typeOptions.isEmpty
+                ? [DropdownMenuItem(value: 'other', child: Text(s.t('other')))]
+                : typeOptions.map((row) => DropdownMenuItem(value: '${row['value']}', child: Text('${row['label'] ?? row['value']}'))).toList(),
             onChanged: (v) => setLocal(() => type = v ?? 'other'),
           ),
           if (availablePlans.isNotEmpty) ...[
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  menuMaxHeight: 360,
               value: planId.isEmpty ? null : planId,
               decoration: InputDecoration(labelText: s.t('plan')),
               items: [

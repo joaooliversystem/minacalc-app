@@ -1,0 +1,9 @@
+MinaCalc Pro 2.15 — Etapa 1 implementada
+
+- nomenclaturas genéricas sem Enaex/IBEGEL nas bases visíveis atuais
+- relatório cliente simplificado (sem rastreabilidade técnica exibida)
+- status Ativo esclarecido como plano liberado para campo
+- selects/checkboxes/radios com alvos maiores e contraste reforçado
+- APFF/checklist com contraste e seleção mais claros
+- logo mobile/app corrigida para exibir MinaCalc Pro completo
+- dados históricos internos e snapshots técnicos continuam preservados
