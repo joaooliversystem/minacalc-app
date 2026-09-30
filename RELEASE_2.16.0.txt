@@ -1,0 +1,12 @@
+MINACALC PRO 2.16.0 — APP COMPLETO
+
+API padrão: https://minacalcpro.com.br/api.php
+Versão: 2.16.0+2160
+
+Cobrança de clientes MinaCalc:
+- Plano e PIX no aplicativo.
+- 1º período grátis conforme configuração do servidor.
+- Mensalidade PIX criada pelo backend via MeuAssistente.pro.
+- App não contém App Key/App Secret.
+- QR/copia e cola/checkout conforme retorno do provedor.
+- Status pode ser consultado offline a partir do último cache; pagamento exige conexão.

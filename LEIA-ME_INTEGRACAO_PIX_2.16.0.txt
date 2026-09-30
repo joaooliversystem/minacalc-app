@@ -1,0 +1,31 @@
+MINACALC PRO 2.16.0 — INTEGRAÇÃO PIX / MEUASSISTENTE.PRO
+
+ATUALIZAÇÃO DO SERVIDOR EXISTENTE
+1. Use o ZIP WEB_FTP_ATUALIZACAO_SEM_DADOS.
+2. Extraia na raiz atual do MinaCalc e substitua os arquivos de código.
+3. Esse pacote não contém a pasta data/ e não sobrescreve usuários, planos, operações, fórmulas ou configurações existentes.
+4. Entre com o perfil Programador.
+5. Abra: PIX / MeuAssistente.
+6. Informe URL da API, App Key, App Secret, Customer ID e Product ID.
+7. Confirme R$ 39,90/mês, início do 1º mês grátis e geração automática.
+8. Clique em Salvar integração e depois Testar conexão.
+
+SEGURANÇA
+- App Key/App Secret são usados somente pelo backend PHP.
+- App Secret não é devolvido ao navegador depois de salvo.
+- O aplicativo Android não recebe credenciais do MeuAssistente.pro.
+- data/.htaccess bloqueia acesso web direto aos JSONs do sistema.
+- Somente o perfil Programador acessa a configuração técnica.
+
+PAGAMENTO
+- Somente PIX no MinaCalc.
+- 1º mês grátis; depois R$ 39,90/mês por padrão.
+- A cobrança mensal é criada via POST /api/external/v1/invoices.
+- É utilizada Idempotency-Key por ciclo para impedir duplicidade.
+- Após a criação, o sistema consulta a fatura para buscar PIX copia e cola, QR Code ou checkout quando disponíveis.
+- Confirmação de pagamento é assíncrona: o MeuAssistente/provedor reconcilia a cobrança e o MinaCalc consulta novamente o status.
+
+IMPORTANTE
+- É necessário que a credencial possua invoices:read e invoices:write.
+- O teste real de criação depende de App Key/App Secret, Customer ID e Product ID válidos.
+- A documentação V27 recebida não enumera os valores aceitos em payment_method; a integração envia "pix" para respeitar a exigência de pagamento exclusivamente via PIX. Se a API da conta usar outro literal para PIX, ajuste o backend antes de ativar cobranças reais.

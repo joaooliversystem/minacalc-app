@@ -1,0 +1,15 @@
+MinaCalc Pro 2.16.0 — Etapa 6 / Pagamentos PIX
+
+- Integração backend com API externa MeuAssistente/João Cobranças V27.
+- Somente PIX; sem cartão/Stripe no MinaCalc.
+- 1º mês grátis; depois R$ 39,90/mês por padrão.
+- Criação mensal via POST /api/external/v1/invoices.
+- Idempotency-Key por cliente/produto/ciclo para impedir cobrança duplicada.
+- App Key e App Secret apenas no backend; App Secret nunca é devolvido ao navegador/app.
+- Configuração e teste visíveis apenas ao perfil Programador.
+- Tela de pagamento para usuários com status, PIX copia e cola e checkout quando retornados pela API.
+- Programador mantém bypass técnico para evitar bloqueio administrativo.
+- Cache financeiro e fallback seguro em indisponibilidade temporária.
+- Web/App usam o backend do MinaCalc; aplicativo não recebe credenciais do MeuAssistente.
+
+Observação: teste end-to-end real depende de App Key/App Secret, customer_id e product_id válidos da conta MeuAssistente.pro.

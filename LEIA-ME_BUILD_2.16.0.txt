@@ -1,0 +1,17 @@
+MINACALC PRO 2.16.0 — APP ANDROID
+
+O projeto Flutter está configurado para consumir:
+https://desenvolvimento.joaoprogramador.site/projetos/minacalc/api.php
+
+A integração financeira ocorre exclusivamente pelo backend do MinaCalc.
+Nenhuma App Key/App Secret do MeuAssistente.pro é armazenada no APK.
+
+BUILD LOCAL
+- Windows: BUILD_APK.bat ou BUILD_AAB.bat
+- Linux/macOS: ./BUILD_APK.sh ou ./BUILD_AAB.sh
+
+BUILD GITHUB
+O projeto inclui .github/workflows/android-apk.yml com Flutter 3.47.5 e Java 21.
+Ao enviar para main ou criar uma tag v*, o workflow executa analyze, testes e build do APK.
+
+Versão: 2.16.0+2160

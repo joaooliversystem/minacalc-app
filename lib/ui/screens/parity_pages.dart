@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../controllers/app_controller.dart';
 import '../../services/blast_calculation.dart';
@@ -907,6 +911,124 @@ class AlertsParityPage extends StatefulWidget{final AppController controller;con
 class _AlertsParityPageState extends State<AlertsParityPage>{@override Widget build(BuildContext context)=>FutureBuilder<List<Map<String,dynamic>>>(future:widget.controller.alerts(),builder:(context,snap){if(!snap.hasData)return const Center(child:CircularProgressIndicator());final rows=snap.data!;return ListView(padding:const EdgeInsets.fromLTRB(13,16,13,94),children:[MCPageHeader(title:'Alertas',subtitle:'Ocorrências que exigem atenção',action:TextButton(onPressed:()async{await widget.controller.markAlertsSeen();if(mounted)setState((){});},child:const Text('Marcar lidos'))),if(rows.isEmpty)const MCEmpty(title:'Nenhum alerta aberto',text:'As ocorrências aparecerão aqui.')else...rows.map((a)=>Padding(padding:const EdgeInsets.only(bottom:10),child:MCPanel(child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.warning_amber_rounded,color:_s(a['level'])=='danger'?MinaTheme.red:MinaTheme.yellow),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_s(a['title']),style:const TextStyle(fontWeight:FontWeight.w900)),const SizedBox(height:4),Text(_s(a['detail']),style:const TextStyle(color:MinaTheme.muted))])),if(a['seen']!=true)const Icon(Icons.circle,size:9,color:MinaTheme.yellow)]))))]);});}
 
 class ReferencesParityPage extends StatelessWidget{final AppController controller;const ReferencesParityPage({super.key,required this.controller});@override Widget build(BuildContext context)=>FutureBuilder<List<Map<String,dynamic>>>(future:controller.materials(),builder:(context,snap){if(!snap.hasData)return const Center(child:CircularProgressIndicator());return ListView(padding:const EdgeInsets.fromLTRB(13,16,13,94),children:[const MCPageHeader(title:'Referências',subtitle:'Materiais e parâmetros operacionais'),...snap.data!.map((m)=>Padding(padding:const EdgeInsets.only(bottom:10),child:MCPanel(child:Row(children:[const Icon(Icons.menu_book_outlined,color:MinaTheme.yellow),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_s(m['name']),style:const TextStyle(fontWeight:FontWeight.w900)),Text('Densidade ${_s(m['density_min'])} a ${_s(m['density_max'])}',style:const TextStyle(color:MinaTheme.muted,fontSize:12))]))]))))]);});}
+
+
+class BillingParityPage extends StatefulWidget {
+  final AppController controller;
+  const BillingParityPage({super.key, required this.controller});
+  @override
+  State<BillingParityPage> createState() => _BillingParityPageState();
+}
+
+class _BillingParityPageState extends State<BillingParityPage> {
+  late Future<Map<String, dynamic>> future = widget.controller.billingStatus();
+
+  String money(Object? cents) {
+    final value = ((cents as num?)?.toInt() ?? int.tryParse(_s(cents)) ?? 0) / 100;
+    return 'R\$ ${value.toStringAsFixed(2).replaceAll('.', ',')}';
+  }
+
+  (String, Color) statusView(String status) => switch (status) {
+        'trial' => ('Período grátis', MinaTheme.blue),
+        'paid' => ('Pago', MinaTheme.green),
+        'pending' => ('PIX pendente', MinaTheme.yellow),
+        'overdue' => ('Vencido', MinaTheme.red),
+        'awaiting_invoice' => ('Aguardando cobrança', MinaTheme.muted),
+        'not_configured' => ('Não configurado', MinaTheme.muted),
+        'not_enabled' => ('Não habilitado', MinaTheme.muted),
+        _ => (status.isEmpty ? 'Pendente' : status, MinaTheme.yellow),
+      };
+
+  void refresh() => setState(() => future = widget.controller.refreshBilling());
+
+  Widget qrImage(String value) {
+    if (value.startsWith('data:image') && value.contains(',')) {
+      try {
+        final bytes = base64Decode(value.split(',').last);
+        return Image.memory(bytes, width: 250, height: 250, fit: BoxFit.contain);
+      } catch (_) {}
+    }
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return Image.network(value, width: 250, height: 250, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const SizedBox.shrink());
+    }
+    return const SizedBox.shrink();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: future,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+        if (snap.hasError) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(13, 16, 13, 94),
+            children: [
+              const MCPageHeader(title: 'Plano e PIX', subtitle: 'Mensalidade MinaCalc Pro'),
+              MCPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Não foi possível consultar a cobrança.', style: TextStyle(fontWeight: FontWeight.w900, color: MinaTheme.red)),
+                const SizedBox(height: 8),
+                Text('${snap.error}', style: const TextStyle(color: MinaTheme.muted)),
+                const SizedBox(height: 14),
+                ElevatedButton.icon(onPressed: refresh, icon: const Icon(Icons.refresh), label: const Text('Tentar novamente')),
+              ])),
+            ],
+          );
+        }
+        final b = snap.data ?? const <String, dynamic>{};
+        final invoice = b['invoice'] is Map ? Map<String, dynamic>.from(b['invoice'] as Map) : <String, dynamic>{};
+        final status = statusView(_s(b['status']));
+        final pix = _s(invoice['pix_copy_paste']);
+        final qr = _s(invoice['pix_qr_image']);
+        final checkout = _s(invoice['checkout_url']);
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(13, 16, 13, 94),
+          children: [
+            MCPageHeader(title: 'Plano e PIX', subtitle: '${_s(b['company_name']).isEmpty ? 'Sua empresa' : _s(b['company_name'])} • MinaCalc Pro'),
+            MCPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('MinaCalc Pro', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text(_s(b['message']), style: const TextStyle(color: MinaTheme.muted)),
+                ])),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(border: Border.all(color: status.$2), borderRadius: BorderRadius.circular(20)), child: Text(status.$1, style: TextStyle(color: status.$2, fontWeight: FontWeight.w800))),
+              ]),
+              const SizedBox(height: 16),
+              Text('${money(b['amount_cents'])} / mês via PIX', style: const TextStyle(color: MinaTheme.yellow, fontSize: 18, fontWeight: FontWeight.w900)),
+              if (b['offline_cache'] == true) ...[const SizedBox(height: 8), const Text('Status salvo anteriormente. Conecte-se para atualizar ou pagar.', style: TextStyle(color: MinaTheme.muted, fontSize: 12))],
+              if (_s(b['status']) == 'trial') ...[const SizedBox(height: 12), Text('Período gratuito até ${_s(b['trial_until'])}.', style: const TextStyle(color: MinaTheme.green, fontWeight: FontWeight.w800))],
+            ])),
+            if (invoice.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              MCPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Cobrança atual', style: TextStyle(color: MinaTheme.yellow, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Text(money(invoice['amount_cents'] ?? b['amount_cents']), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                if (_s(invoice['due_date']).isNotEmpty) Text('Vencimento: ${_s(invoice['due_date'])}', style: const TextStyle(color: MinaTheme.muted)),
+                if (qr.isNotEmpty) ...[const SizedBox(height: 16), Center(child: qrImage(qr))],
+                if (pix.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text('PIX copia e cola', style: TextStyle(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  SelectableText(pix, style: const TextStyle(color: MinaTheme.muted, fontSize: 12)),
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: pix)); if (context.mounted) mcToast(context, 'Código PIX copiado.'); }, icon: const Icon(Icons.copy), label: const Text('Copiar código PIX'))),
+                ],
+                if (checkout.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () async { final uri = Uri.tryParse(checkout); if (uri == null || !await launchUrl(uri, mode: LaunchMode.externalApplication)) { if (context.mounted) mcToast(context, 'Não foi possível abrir o pagamento.', error: true); } }, icon: const Icon(Icons.open_in_new), label: const Text('Abrir pagamento'))),
+                ],
+                const SizedBox(height: 10),
+                SizedBox(width: double.infinity, child: TextButton.icon(onPressed: widget.controller.connectivity.hasNetwork ? refresh : null, icon: const Icon(Icons.refresh), label: const Text('Atualizar status'))),
+              ])),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
 
 class SettingsParityPage extends StatefulWidget{final AppController controller;const SettingsParityPage({super.key,required this.controller});@override State<SettingsParityPage> createState()=>_SettingsParityPageState();}
 class _SettingsParityPageState extends State<SettingsParityPage>{Map<String,dynamic>? data;late final Map<String,TextEditingController> c={'company':TextEditingController(),'technical_responsible':TextEditingController(),'registration':TextEditingController(),'retention_months':TextEditingController(),'people_radius':TextEditingController(),'equipment_radius':TextEditingController()};bool offline=true,gps=true,loaded=false;

@@ -29,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'alerts' => 'Alertas',
         'references' => 'Referências',
         'settings' => 'Configurações',
+        'billing' => 'Plano e PIX',
         'sync' => 'Sincronização',
         'profile' => 'Minha conta',
         _ => 'MinaCalc Pro',
@@ -47,9 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ('map', Icons.map_outlined, 'Mapa'),
       ('reports', Icons.description_outlined, 'Relatórios'),
     ];
-    if (widget.controller.role == 'cliente') return [...common, ('profile', Icons.person_outline, 'Minha conta')];
+    if (widget.controller.role == 'cliente') return [...common, ('billing', Icons.pix_outlined, 'Plano e PIX'), ('profile', Icons.person_outline, 'Minha conta')];
     if (widget.controller.role == 'campo') {
-      return [...common, ('references', Icons.menu_book_outlined, 'Referências'), ('sync', Icons.sync, 'Sincronização'), ('profile', Icons.person_outline, 'Minha conta')];
+      return [...common, ('references', Icons.menu_book_outlined, 'Referências'), ('billing', Icons.pix_outlined, 'Plano e PIX'), ('sync', Icons.sync, 'Sincronização'), ('profile', Icons.person_outline, 'Minha conta')];
     }
     final extra = <(String, IconData, String)>[
       ('teams', Icons.groups_outlined, 'Equipes'),
@@ -63,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
       extra.add(('checklists', Icons.fact_check_outlined, 'Checklists'));
       extra.add(('settings', Icons.settings_outlined, 'Configurações'));
     }
-    return [...common, ...extra, ('sync', Icons.sync, 'Sincronização'), ('profile', Icons.person_outline, 'Minha conta')];
+    return [...common, ...extra, if (!widget.controller.isProgrammer) ('billing', Icons.pix_outlined, 'Plano e PIX'), ('sync', Icons.sync, 'Sincronização'), ('profile', Icons.person_outline, 'Minha conta')];
   }
 
   Widget body() => switch (page) {
@@ -80,6 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'alerts' => AlertsParityPage(controller: widget.controller),
         'references' => ReferencesParityPage(controller: widget.controller),
         'settings' => SettingsParityPage(controller: widget.controller),
+        'billing' => BillingParityPage(controller: widget.controller),
         'sync' => SyncParityPage(controller: widget.controller),
         'profile' => ProfileParityPage(controller: widget.controller),
         _ => DashboardParityPage(controller: widget.controller, onNavigate: go, onRegister: () => openRegisterOperation(context, widget.controller)),

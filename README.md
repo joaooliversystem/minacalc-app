@@ -1,10 +1,10 @@
-# MinaCalc Pro 2.15.0 — Flutter / Android
+# MinaCalc Pro 2.16.0 — Flutter / Android
 
 Aplicativo nativo para operação de campo com primeiro login online e continuidade offline após sincronização inicial.
 
 ## Versão
-- Flutter app: `2.15.0+2150`
-- API esperada: MinaCalc Pro Web/API `2.15.0`
+- Flutter app: `2.16.0+2160`
+- API esperada: MinaCalc Pro Web/API `2.16.0`
 - Application ID: `br.com.minacalc.pro`
 
 ## Recursos consolidados
@@ -49,7 +49,7 @@ Sem `key.properties`, o build release usa a assinatura debug somente para homolo
 
 ## API
 Por padrão o app usa:
-`https://desenvolvimento.joaoprogramador.site/projetos/minacalc/api.php`
+`https://minacalcpro.com.br/api.php`
 
 Para outra instalação, compile informando:
 ```bash
@@ -58,3 +58,10 @@ flutter build apk --release --dart-define=MINACALC_API_URL=https://SEU-DOMINIO/a
 
 ## Observação de validação
 As fórmulas técnicas marcadas como pendentes no servidor não são aplicadas automaticamente pelo app. O app utiliza somente versões publicadas e sincronizadas.
+
+
+## Cobrança PIX 2.16.0
+- Área “Plano e PIX” para clientes do MinaCalc Pro.
+- Consulta e geração de cobrança sempre pelo backend Web/API; nenhuma credencial do MeuAssistente.pro é embutida no APK.
+- Exibe QR Code/PIX copia e cola quando disponibilizados pela API; fallback para checkout externo.
+- Status financeiro fica em cache local somente para consulta offline; criação/atualização de cobrança exige internet.

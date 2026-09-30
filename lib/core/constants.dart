@@ -1,9 +1,9 @@
 class AppConstants {
   static const String appName = 'MinaCalc Pro';
-  static const String appVersion = '2.15.0';
+  static const String appVersion = '2.16.0';
   static const String apiBaseUrl = String.fromEnvironment(
     'MINACALC_API_URL',
-    defaultValue: 'https://desenvolvimento.joaoprogramador.site/projetos/minacalc/api.php',
+    defaultValue: 'https://minacalcpro.com.br/api.php',
   );
   static const String mapStyleUrl = String.fromEnvironment(
     'MINACALC_MAP_STYLE_URL',

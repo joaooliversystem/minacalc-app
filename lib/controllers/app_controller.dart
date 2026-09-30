@@ -118,6 +118,14 @@ class AppController extends ChangeNotifier {
         await db.putLocal('settings', 'main', settings);
         await db.setMeta('server_settings', jsonEncode(settings));
       }
+      if (role != 'programador') {
+        try {
+          final billingResponse = await api.action('billing_status', const {});
+          if (billingResponse['billing'] is Map) {
+            await db.setMeta('billing_status', jsonEncode(Map<String, dynamic>.from(billingResponse['billing'] as Map)));
+          }
+        } catch (_) {}
+      }
       notifyListeners();
     } catch (_) {
       // Auxiliary data is best-effort. Core offline/sync data remains available.
@@ -514,6 +522,29 @@ class AppController extends ChangeNotifier {
     final optimistic = {...current, ...values, 'id': 'main', '_local_pending': true};
     await queueApiAction(action: 'settings_save', body: values, collection: 'settings', recordId: 'main', optimisticRecord: optimistic, resultKey: 'settings');
   }
+
+  Future<Map<String, dynamic>> billingStatus({bool refresh = false}) async {
+    if (connectivity.hasNetwork) {
+      final response = await api.action(refresh ? 'billing_refresh' : 'billing_status', {'refresh': refresh});
+      final raw = response['billing'];
+      if (raw is! Map) throw StateError('Resposta financeira inválida do servidor.');
+      final billing = Map<String, dynamic>.from(raw);
+      await db.setMeta('billing_status', jsonEncode(billing));
+      return billing;
+    }
+    final cached = await db.getMeta('billing_status');
+    if (cached != null && cached.isNotEmpty) {
+      final decoded = jsonDecode(cached);
+      if (decoded is Map) {
+        final billing = Map<String, dynamic>.from(decoded);
+        billing['offline_cache'] = true;
+        return billing;
+      }
+    }
+    throw StateError('Conecte-se à internet para consultar ou gerar a cobrança PIX.');
+  }
+
+  Future<Map<String, dynamic>> refreshBilling() => billingStatus(refresh: true);
 
   Future<void> finishOperation(Map<String, dynamic> data) async {
     final clientUuid = (data['client_uuid'] ?? _uuid.v4()).toString();
